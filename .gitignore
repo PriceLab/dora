@@ -9,5 +9,9 @@ node_modules/
 ipyleaflet/static/
 ipyleaflet/staticlab/
 
+# big data
+rosmap_counts_matrix_normalized_geneSymbols_25031x638.RData
+tbl.gwas.level_1.RData
+
 # OS X
 .DS_Store
