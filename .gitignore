@@ -4,6 +4,7 @@ dist/
 build/
 *.py[cod]
 node_modules/
+.Rhistory
 
 # Compiled javascript
 ipyleaflet/static/
