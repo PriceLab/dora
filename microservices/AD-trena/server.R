@@ -8,8 +8,10 @@ library(stringr)
 library(graph)
 library(RUnit)
 #------------------------------------------------------------------------------------------------------------------------
-load("./datasets/coryAD/rosmap_counts_matrix_normalized_geneSymbols_25031x638.RData")
-mtx.expression <- asinh(mtx)
+if(!exists("mtx.expression")){
+   load("../../datasets/AD/rosmap_counts_matrix_normalized_geneSymbols_25031x638.RData")
+   mtx.expression <- asinh(mtx)
+   }
 genome.db.uri    <- "postgres://whovian/hg38"             # has gtf and motifsgenes tables
 footprint.db.uri <- "postgres://whovian/brain_hint"        # has hits and regions tables
 if(!exists("fpf"))
