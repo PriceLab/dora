@@ -1,4 +1,4 @@
-# createIgapFimoTrack.R
+# igapGwasFimoUtils.R
 #------------------------------------------------------------------------------------------------------------------------
 library(RPostgreSQL)
 library(GenomicRanges)
@@ -12,7 +12,7 @@ dbSNP <- SNPlocs.Hsapiens.dbSNP144.GRCh38
 library(RUnit)
 #------------------------------------------------------------------------------------------------------------------------
 if(!exists("tbl.gwas")){
-   load("../datalinks/tbl.gwas.level_1.RData")
+   load("~/github/dora/notebooks/AD-trena/datalinks/tbl.gwas.level_1.RData")
    tbl.gwas$score <- -log10(tbl.gwas$P)
    }
 
@@ -43,7 +43,7 @@ runTests <- function()
    test.createWtAndMutSequences()
    test.doComparativeFimo()
    test_igap.gwas.SNPassay()
-   test_igap.gwas.SNPassay.20k()
+   test_igap.gwas.SNPassay.50k()
    test.toBed9()
    #test.geneCentric.bed9.snps()
 
@@ -68,6 +68,7 @@ doComparativeFimo <- function(chrom, base, wt, mut, flank, quiet=TRUE)
 
    if(mut.sequence == wt.sequence) { # due to the flakey data in tbl.gwas.level_1.RData
       printf("    suspicious igap report at %s:%d - mutation same as reference", chrom, base)
+      browser()
       result <- data.frame()
       }
    else{
@@ -225,8 +226,8 @@ old.run.mef2c <- function()
   for(r in 1:nrow(tbl.mef2c)){
      chrom <- tbl.mef2c$CHR[r]
      base  <- tbl.mef2c$BP[r]
-     mut  <- tbl.mef2c$Non_Effect_allele[r];
-     wt <- tbl.mef2c$Effect_allele[r];
+     wt  <- tbl.mef2c$Non_Effect_allele[r];
+     mut <- tbl.mef2c$Effect_allele[r];
      motif.status[r] <- doComparativeFimo(chrom, base, wt, mut, flank=10)
      #printf("status: %s", status)
      #if(nrow(tbl.comp) > 0) print(tbl.comp)
@@ -263,8 +264,8 @@ run.chromosome <- function(chrom)
   for(r in 1:nrow(tbl.chrom)){
      chrom <- tbl.chrom$CHR[r]
      base  <- tbl.chrom$BP[r]
-     mut  <- tbl.chrom$Non_Effect_allele[r];
-     wt <- tbl.chrom$Effect_allele[r];
+     wt  <- tbl.chrom$Non_Effect_allele[r];
+     mut <- tbl.chrom$Effect_allele[r];
      motif.status[r] <- doComparativeFimo(chrom, base, wt, mut, flank=10)
      } # for r
 
@@ -338,7 +339,11 @@ igap.gwas.SNPassay <- function(gene, upstream, downstream, snp.shoulder, quiet=F
      region.end   <- gene.info$end + upstream
      }
 
-  tbl.regionalSNPs <- subset(tbl.gwas, BP >= region.start & BP <= region.end)   # 102
+  tbl.regionalSNPs <- subset(tbl.gwas, CHR==chrom & BP >= region.start & BP <= region.end)   # 102
+  printf("snps in region: %d", nrow(tbl.regionalSNPs))
+  if(nrow(tbl.regionalSNPs) == 0){
+     return(noquote(sprintf("no SNPs found in %s:%d-%d", chrom, region.start, region.end)))
+     }
 
   max <- nrow(tbl.regionalSNPs)
   list.out <- list()
@@ -348,7 +353,7 @@ igap.gwas.SNPassay <- function(gene, upstream, downstream, snp.shoulder, quiet=F
      rsid <- tbl.regionalSNPs$SNP[r]
      if(rsid =="rs80174570") rsid <- "rs4614309"
      loc <- tbl.regionalSNPs$BP[r]
-     igap.wt <- tbl.regionalSNPs[r, "Non_Effect_allele"]
+     igap.wt  <- tbl.regionalSNPs[r, "Non_Effect_allele"]
      igap.mut <- tbl.regionalSNPs[r, "Effect_allele"]
      x <- doComparativeFimo(chrom, loc, igap.wt, igap.mut, snp.shoulder)
      if(nrow(x$table) == 0){
@@ -395,27 +400,33 @@ test_igap.gwas.SNPassay <- function()
    tbl.trem2 <- igap.gwas.SNPassay(gene="TREM2", upstream=10000, downstream=100, snp.shoulder=10, quiet=TRUE)
 
    checkEquals(ncol(tbl.trem2), 18)
-   checkTrue(nrow(tbl.trem2) > 12)
+   checkEquals(nrow(tbl.trem2), 6)
    expected.colnames <- c("base", "chrom", "gene", "gene.strand", "igap.mut", "igap.wt", "matched.sequence", "motif", "p.value",
                           "q.value", "rsid", "score", "sequence.name", "start", "status", "stop", "strand", "tss", "base",
                           "chrom", "gene", "gene.strand", "igap.mut", "igap.wt", "matched.sequence", "motif", "p.value", "q.value",
                           "rsid", "score", "sequence.name", "start", "status", "stop", "strand", "tss")
    checkTrue(all(expected.colnames %in% colnames(tbl.trem2)))
-   expected.rsids <- c("rs28654619", "rs6517655",  "rs2210277",  "rs4822013")
+   expected.rsids <- c("rs57108243", "rs6933067", "rs7748777")
    checkTrue(all(expected.rsids %in% tbl.trem2$rsid))
-   checkTrue(is.na(subset(tbl.trem2, rsid=="rs28654619")$motif))  # no motif found here
+   checkTrue(is.na(subset(tbl.trem2, rsid=="rs7748777")$motif))  # no motif found here
+   checkTrue(is.na(subset(tbl.trem2, rsid=="rs57108243")$motif))  # no motif found here
 
 } # test_igap.gwas.SNPassay
 #------------------------------------------------------------------------------------------------------------------------
-# spread the region of interest, upstream and down from TREM2's tss, to 20k, to capture more
-# variety - specifically some "noChange" rsid pars
-test_igap.gwas.SNPassay.20k <- function()
+# spread the region of interest, upstream and down from TREM2's tss, to 50k, to capture more
+# variety - at least one instance of each status type
+test_igap.gwas.SNPassay.50k <- function()
 {
    printf("--- test_igap.gwas.SNPassay.20k")
-   tbl.trem2 <- igap.gwas.SNPassay(gene="TREM2", upstream=10000, downstream=10000, snp.shoulder=10, quiet=TRUE)
+   tbl.trem2 <- igap.gwas.SNPassay(gene="TREM2", upstream=50000, downstream=0, snp.shoulder=10, quiet=TRUE)
    checkEquals(sort(unique(tbl.trem2$status)), c("gain", "loss", "lossAndGain", "noChange", "noMotif"))
+   checkEquals(unique(tbl.trem2$chrom), "chr6")
+   mean.score <- mean(tbl.trem2$score, na.rm=TRUE)
+   checkTrue(mean.score > 9 & mean.score < 10)
+   checkEquals(as.list(table(tbl.trem2$status)),
+               list(gain=36, loss=12, lossAndGain=37, noChange=4, noMotif=20))
 
-} # test_igap.gwas.SNPassay.20k
+} # test_igap.gwas.SNPassay.50k
 #------------------------------------------------------------------------------------------------------------------------
 # this function evaluates igap gwas snps in the specified region for motif change, and
 # creates a 9-column bedfile with the results.
@@ -481,5 +492,5 @@ demo.ap2a2.promximal.snps <- function()
 
 } # demo.ap2a2.promximal.snps
 #------------------------------------------------------------------------------------------------------------------------
-if(!interactive())
-   runTests()
+#if(!interactive())
+#   runTests()
