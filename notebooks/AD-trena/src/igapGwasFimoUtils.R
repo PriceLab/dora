@@ -68,7 +68,6 @@ doComparativeFimo <- function(chrom, base, wt, mut, flank, quiet=TRUE)
 
    if(mut.sequence == wt.sequence) { # due to the flakey data in tbl.gwas.level_1.RData
       printf("    suspicious igap report at %s:%d - mutation same as reference", chrom, base)
-      browser()
       result <- data.frame()
       }
    else{
