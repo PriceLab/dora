@@ -1,31 +1,41 @@
 # createIgapFimoTrack.R
 #------------------------------------------------------------------------------------------------------------------------
+library(RPostgreSQL)
+library(GenomicRanges)
+library(TReNA)
 library(FimoClient)
-#library(getDNAClient)
 library(RUnit)
 library(BSgenome.Hsapiens.UCSC.hg38)
 hg38 = BSgenome.Hsapiens.UCSC.hg38
 library(SNPlocs.Hsapiens.dbSNP144.GRCh38)
-snps <- SNPlocs.Hsapiens.dbSNP144.GRCh38
-
+dbSNP <- SNPlocs.Hsapiens.dbSNP144.GRCh38
+library(RUnit)
 #------------------------------------------------------------------------------------------------------------------------
-if(!exists("tbl.gwas"))
-   load("../tbl.gwas.level_1.RData")
-tbl <- tbl.gwas
-tbl$score <- -log10(tbl$P)
-#if(!exists("dna.service"))
-#    dna.service <- getDNAClient("hg38", quiet=TRUE)
+if(!exists("tbl.gwas")){
+   load("../datalinks/tbl.gwas.level_1.RData")
+   tbl.gwas$score <- -log10(tbl.gwas$P)
+   }
 
-if(!exists("fimo.service"))
+if(!exists("fimo.service")){
    fimo.service <-  FimoClient("whovian", 5558, quiet=TRUE)
+   checkEquals(nrow(requestMatch(fimo.service, list(bogus='NNNNN'))), 0)
+   }
 
 if(!exists("chrom.lengths")){
    library(TxDb.Hsapiens.UCSC.hg19.knownGene)   #  version 3.2.2
    tbl.seqInfo <- seqlevels(seqinfo(TxDb.Hsapiens.UCSC.hg19.knownGene))
    seqlengths(seqinfo(TxDb.Hsapiens.UCSC.hg19.knownGene))[paste("chr", c(1:22, "X", "Y"), sep="")]
    chrom.lengths <- as.list(seqlengths(seqinfo(TxDb.Hsapiens.UCSC.hg19.knownGene))[paste("chr", c(1:22), sep="")])
-   }
+  }
 
+db.gtf <- dbConnect(PostgreSQL(), user= "trena", password="trena", dbname="gtf", host="whovian")
+tmp <- checkEquals(dbListTables(db.gtf), "hg38human")
+if(!exists("tbl.geneInfo")){
+   query <- "select * from hg38human where moleculetype='gene' and gene_biotype='protein_coding'"
+   tbl.geneInfo <- dbGetQuery(db.gtf, query)
+   checkTrue(nrow(tbl.geneInfo) > 19000)
+   checkTrue(ncol(tbl.geneInfo) > 25)
+   }
 
 #------------------------------------------------------------------------------------------------------------------------
 runTests <- function()
@@ -61,6 +71,7 @@ doComparativeFimo <- function(chrom, base, wt, mut, flank, quiet=TRUE)
    else{
      query <- list(wt=wt.sequence, mut=mut.sequence)
      result <- requestMatch(fimo.service, query)
+     result$X.pattern.name <- as.character(result$X.pattern.name)
      if(!quiet) print(result)
      }
 
@@ -88,36 +99,42 @@ doComparativeFimo <- function(chrom, base, wt, mut, flank, quiet=TRUE)
          status <- "gain"
      } # else: nrow > 0
 
-    status
+    return(list(chrom=chrom, base=base, wt=wt, mut=mut, flank=flank, status=status, table=result))
 
 } # doComparativeFimo
 #------------------------------------------------------------------------------------------------------------------------
 test.doComparativeFimo <- function(chrom, base, wt, mut)
 {
    printf("--- test.doComparativeFimo")
-   wt   <- with(tbl[1,], Non_Effect_allele)
-   mut  <- with(tbl[1,], Effect_allele)
-   chrom <- with(tbl[1,], CHR)
-   base <- with(tbl[1,], BP)
+   # wt   <- with(tbl[1,], Non_Effect_allele)
+   # mut  <- with(tbl[1,], Effect_allele)
+   # chrom <- with(tbl[1,], CHR)
+   # base <- with(tbl[1,], BP)
 
-   # checkEquals("gain",        doComparativeFimo("chr5", 88469841, "A", "T", 10, quiet=FALSE))
-   checkEquals("gain",        doComparativeFimo("chr1", 2312079, "C", "T", 7))
-   checkEquals("noMotif",     doComparativeFimo("chr1", 2428478, "T", "C", 7))
-   checkEquals("loss",        doComparativeFimo("chr1", 2316546, "T", "C", 7))
-   checkEquals("lossAndGain", doComparativeFimo("chr1", 2314000, "T", "C", 7))
-   checkEquals("noChange",    doComparativeFimo("chr1", 1068249, "C", "T", 10))
+   x <- doComparativeFimo("chr1", 2312079, "C", "T", 7)
+   checkEquals(sort(names(x)), c("base", "chrom", "flank", "mut", "status", "table", "wt"))
+   checkEquals(x$chrom, "chr1")
+   checkEquals(x$base, 2312079)
 
-     # some hand-picked examples to bring out all possible results: noMotif, noChange, loss, gain, lossAndGain
-   for(r in sample(1:100, size=10)){
-     chrom <- tbl$CHR[r]
-     base  <- tbl$BP[r]
-     mut  <- tbl$Non_Effect_allele[r];
-     wt <- tbl$Effect_allele[r];
-     printf("%d) %s:%d", r, chrom, base)
-     status <- doComparativeFimo(chrom, base, wt, mut, flank=10)
-     #printf("status: %s", status)
-     #if(nrow(tbl.comp) > 0) print(tbl.comp)
-     } # for r
+   checkEquals(x$flank, 7)
+   checkEquals(x$mut, "T")
+   checkEquals(x$wt,  "C")
+   checkTrue(is(x$table, "data.frame"))
+   checkEquals(x$status, "gain")
+
+    # for possible later, additional testing:
+
+    # doComparativeFimo("chr1", 2312079, "C", "T", 7)
+    # doComparativeFimo("chr1", 2428478, "T", "C", 7)
+    # doComparativeFimo("chr1", 2316546, "T", "C", 7)
+    # doComparativeFimo("chr1", 2314000, "T", "C", 7)
+    # doComparativeFimo("chr1", 1068249, "C", "T", 10)
+
+   checkEquals("gain",        doComparativeFimo("chr1", 2312079, "C", "T", 7)$status)
+   checkEquals("noMotif",     doComparativeFimo("chr1", 2428478, "T", "C", 7)$status)
+   checkEquals("loss",        doComparativeFimo("chr1", 2316546, "T", "C", 7)$status)
+   checkEquals("lossAndGain", doComparativeFimo("chr1", 2314000, "T", "C", 7)$status)
+   checkEquals("noChange",    doComparativeFimo("chr1", 1068249, "C", "T", 10)$status)
 
 } # test.doComparativeFimo
 #------------------------------------------------------------------------------------------------------------------------
@@ -137,7 +154,7 @@ createWtAndMutSequences <- function(chrom, base, wt.base, mut.base, flank=7)
 test.createWtAndMutSequences <- function(chrom, base, flank=7)
 {
    printf("--- test.createWtAndMutSequences")
-   snp <- tbl[30,]
+   snp <- tbl.gwas[30,]
    chrom <- snp$CHR
    base  <- snp$BP
    mut  <-  snp$Effect_allele
@@ -159,9 +176,9 @@ test.createWtAndMutSequences <- function(chrom, base, flank=7)
 
    for (r in 1:30){
       #printf(" ------ tbl.gwas, row %d", r)
-      wt  <- tbl$Non_Effect_allele[r]
-      mut <- tbl$Effect_allele[r]
-      seqs <- createWtAndMutSequences(tbl$CHR[r], tbl$BP[r], wt, mut, flank=3)
+      wt  <- tbl.gwas$Non_Effect_allele[r]
+      mut <- tbl.gwas$Effect_allele[r]
+      seqs <- createWtAndMutSequences(tbl.gwas$CHR[r], tbl.gwas$BP[r], wt, mut, flank=3)
       #checkEquals(seqs$wtBase, wt)
       checkEquals(seqs$mutBase, mut)
       } # for r
@@ -180,10 +197,10 @@ test.gwasReferenceBases <- function()
      }
 
    for(r in 1:10){
-      claimed.base <- tbl$Non_Effect_allele[r]
-      name <- tbl$SNP[r]
-      chrom <- tbl$CHR[r]
-      loc <- tbl$BP[r]
+      claimed.base <- tbl.gwas$Non_Effect_allele[r]
+      name <- tbl.gwas$SNP[r]
+      chrom <- tbl.gwas$CHR[r]
+      loc <- tbl.gwas$BP[r]
       #actual.base <- getSequenceByLoc(dna.service, chrom, loc, loc)
       actual.base <-as.character(getSeq(hg38, chrom, loc, loc))
       checkTrue(actual.base %in% c(claimed.base, complement(claimed.base)))
@@ -200,7 +217,7 @@ old.run.mef2c <- function()
   start <- 88469841 - 20
   end <- 89397039 + 20
 
-  tbl.mef2c <- subset(tbl, CHR==chrom & BP > start & BP < end)   # 67 rows
+  tbl.mef2c <- subset(tbl.gwas, CHR==chrom & BP > start & BP < end)   # 67 rows
   motif.status <- vector(mode="character", length=nrow(tbl.mef2c))
 
   for(r in 1:nrow(tbl.mef2c)){
@@ -237,7 +254,7 @@ run.chromosome <- function(chrom)
   start <- 1
   end <- chrom.lengths[[chrom]]
 
-  tbl.chrom <- subset(tbl, CHR==chrom & BP > start & BP < end)   # 67 rows
+  tbl.chrom <- subset(tbl.gwas, CHR==chrom & BP > start & BP < end)   # 67 rows
   motif.status <- vector(mode="character", length=nrow(tbl.chrom))
   printf("evaluating %d igap snps", nrow(tbl.chrom))
 
@@ -265,7 +282,7 @@ createBedTracks <- function()
      statusPredictions <<- old.run.mef2c()
   tbl.full <- statusPredictions$igap
 
-  createFile <- function(tbl, selectedStatus){
+  createFile <- function(tbl.gwas, selectedStatus){
      tbl.status <- tbl.full[tbl.full$status==selectedStatus,]
      browser()
      filename <- sprintf("snp_%s.bed", selectedStatus)
@@ -320,79 +337,173 @@ test.toBed9 <- function()
 
 } # test.toBed9
 #------------------------------------------------------------------------------------------------------------------------
-explore.trem2 <- function()
+explore.trem2 <- function(quiet=FALSE)
 {
-  chrom <- "chr6"
-  trem2.region.start <- 41150938
-  trem2.region.end   <- 41196259    # 45k
-  tbl.trem2.region <- subset(tbl, BP >= trem2.region.start & BP <= trem2.region.end)   # 102
-    # unique rsids provided for each
+  gene <- "TREM2"
+  upstream <- 2000    # from tss, respect strand
+  downstream <- 100  # from tss, respect strand
+  gene.info <- subset(tbl.geneInfo, gene_name=="TREM2")[, c('chr', 'start', 'endpos', 'strand')]
+  snp.shoulder <- 10
 
-  max <- nrow(tbl.trem2.region)
-  #max <- 10
-  motif.status <- vector(mode="character", length=max)
-  for(r in 1:max){
-     rsid <- tbl.trem2.region$SNP[r]
-     loc <- tbl.trem2.region$BP[r]
-     ambiguity.code <- snpsById(snps, rsid)$alleles_as_ambig
-     elements.string <- IUPAC_CODE_MAP[[ambiguity.code]]
-     elements <- strsplit(elements.string,'')[[1]]
-     wt <- as.character(getSeq(hg38, chrom, loc, loc))
-     mut <- setdiff(elements, wt)
-     status <- ""
-     for(m in 1:length(mut)){
-        mut.1 <- mut[m]
-        new.status <- doComparativeFimo(chrom, loc, wt, mut.1, 10)
-        if(m == 1)
-           status <- new.status
-        else
-          status <- paste(status, new.status, sep=";")
-        printf("%3d) %20s %8d: %s -> %s [%s]", r, rsid, loc, wt, mut.1, status)
-       }
-     motif.status [r] <- status
+  chrom <- gene.info$chr
+  gene.strand <- gene.info$strand
+
+  tss <- gene.info$start
+  if(gene.strand == "+"){
+     region.start <- gene.info$start - upstream
+     region.end   <- gene.info$start + downstream
+     }
+
+  if(gene.strand == "-"){
+     tss <- gene.info$end
+     region.start <- gene.info$end - downstream
+     region.end   <- gene.info$end + upstream
+     }
+
+  tbl.regionalSNPs <- subset(tbl.gwas, BP >= region.start & BP <= region.end)   # 102
+
+  max <- nrow(tbl.regionalSNPs)
+  list.out <- list()
+
+  for(r in 1:max){ #1:max){
+     if(!quiet) printf("assessing motif change for %d/%d", r, max);
+     rsid <- tbl.regionalSNPs$SNP[r]
+     if(rsid =="rs80174570") rsid <- "rs4614309"
+     loc <- tbl.regionalSNPs$BP[r]
+     igap.wt <- tbl.regionalSNPs[1, "Non_Effect_allele"]
+     igap.mut <- tbl.regionalSNPs[1, "Effect_allele"]
+     x <- doComparativeFimo(chrom, loc, igap.wt, igap.mut, snp.shoulder)
+     if(nrow(x$table) > 0){
+         x$table$chrom <- chrom
+         x$table$gene <- rep(gene, nrow(x$table))
+         x$table$igap.wt   <- igap.wt
+         x$table$igap.mut  <- igap.mut
+         x$table$base      <- loc
+         x$table$rsid      <- rsid
+         x$table$status    <- x$status
+         x$table$status    <- x$status
+         x$table$tss <- tss
+         x$table$gene.strand <- gene.strand
+         }
+     print(x)
+     list.out[[r]] <- x$table
+     #if(!quiet) printf("%3d) %20s %8d: %s -> %s [%s]", r, rsid, loc, igap.wt, igap.mut, motif.status[r])
      } # for r
 
-   tbl.trem2.region$status <- motif.status
-   write.table(tbl.trem2.region, quote=FALSE, row.names=FALSE, col.names=TRUE, sep="\t", file="trem2.region.tsv")
-   browser();
-   tbl.edited <- read.table("trem2.region.tsv", sep="\t", header=TRUE, as.is=TRUE)
-   tbl.b9 <- toBed9(tbl.edited)
-   write.table(tbl.b9, quote=FALSE, sep="\t", row.names=FALSE, col.names=FALSE, file="trem2.region.bed")
-
+  tbl.out <- do.call("rbind", list.out)
+  #tbl.out <- tbl.out[c("gene",
+  browser()
+  colnames(tbl.out)[grep("X.pattern.name", colnames(tbl.out))] <- "motif"
+  colnames(tbl.out)[grep("X.pattern.name", colnames(tbl.out))] <- "motif"
+  tbl.out[, c("gene", "chrom", "tss", "gene.strand", "rsid", "base", "igap.wt", "igap.mut",  "sequence.name",
+              "matched.sequence", "motif", "start", "stop", "strand", "score", "p.value", "q.value", "status")]
 
 } # explore.trem2
 #------------------------------------------------------------------------------------------------------------------------
-geneCentric.bed9.snps <- function(chrom, region.start, region.end, gene, manualEdit=FALSE)
+igap.gwas.SNPassay <- function(gene, upstream, downstream, snp.shoulder, quiet=FALSE)
 {
-  tbl.region <- subset(tbl, CHR==chrom & BP >= region.start & BP <= region.end)   # 102
+  gene.info <- subset(tbl.geneInfo, gene_name==gene)[, c('chr', 'start', 'endpos', 'strand')]
+
+  chrom <- gene.info$chr
+  gene.strand <- gene.info$strand
+
+  tss <- gene.info$start
+  if(gene.strand == "+"){
+     region.start <- gene.info$start - upstream
+     region.end   <- gene.info$start + downstream
+     }
+
+  if(gene.strand == "-"){
+     tss <- gene.info$end
+     region.start <- gene.info$end - downstream
+     region.end   <- gene.info$end + upstream
+     }
+
+  tbl.regionalSNPs <- subset(tbl.gwas, BP >= region.start & BP <= region.end)   # 102
+
+  max <- nrow(tbl.regionalSNPs)
+  list.out <- list()
+
+  for(r in 1:max){ #1:max){
+     if(!quiet) printf("assessing motif change for %d/%d", r, max);
+     rsid <- tbl.regionalSNPs$SNP[r]
+     if(rsid =="rs80174570") rsid <- "rs4614309"
+     loc <- tbl.regionalSNPs$BP[r]
+     igap.wt <- tbl.regionalSNPs[r, "Non_Effect_allele"]
+     igap.mut <- tbl.regionalSNPs[r, "Effect_allele"]
+     x <- doComparativeFimo(chrom, loc, igap.wt, igap.mut, snp.shoulder)
+     if(nrow(x$table) == 0){
+        printf("no rows in fimo table")
+        tmp <- data.frame(chrom=chrom, gene=gene, igap.wt=igap.wt, igap.mut=igap.mut, base=loc,
+                          rsid=rsid, status=x$status, gene.strand=gene.strand, stringsAsFactors=FALSE, tss=tss)
+        tmp$X.pattern.name <- NA
+        tmp$sequence.name <- NA
+        tmp$start <- NA
+        tmp$stop <- NA
+        tmp$strand <- NA
+        tmp$score <- NA
+        tmp$p.value <- NA
+        tmp$q.value <- NA
+        tmp$matched.sequence <- NA
+        x$table <- tmp
+        }
+     else if(nrow(x$table) > 0){
+         x$table$chrom     <- chrom
+         x$table$gene      <- gene
+         x$table$igap.wt   <- igap.wt
+         x$table$igap.mut  <- igap.mut
+         x$table$base      <- loc
+         x$table$rsid      <- rsid
+         x$table$status    <- x$status
+         x$table$tss       <- tss
+         x$table$gene.strand <- gene.strand
+         }
+     if(!quiet) print(x)
+     list.out[[r]] <- x$table
+     } # for r
+
+  tbl.out <- do.call("rbind", list.out)
+  colnames(tbl.out)[grep("X.pattern.name", colnames(tbl.out))] <- "motif"
+  colnames(tbl.out)[grep("X.pattern.name", colnames(tbl.out))] <- "motif"
+  tbl.out[, c("gene", "chrom", "tss", "gene.strand", "rsid", "base", "igap.wt", "igap.mut",  "sequence.name",
+              "matched.sequence", "motif", "start", "stop", "strand", "score", "p.value", "q.value", "status")]
+
+} # igap.gwas.SNPassay
+#------------------------------------------------------------------------------------------------------------------------
+test_igap.gwas.SNPassay <- function()
+{
+   printf("--- test_igap.gwas.SNPassay")
+   tbl.trem2 <- igap.gwas.SNPassay(gene="TREM2", upstream=2000, downstream=100, snp.shoulder=10, quiet=TRUE)
+
+} # test_igap.gwas.SNPassay
+#------------------------------------------------------------------------------------------------------------------------
+# this function evaluates igap gwas snps in the specified region for motif change, and
+# creates a 9-column bedfile with the results.
+# the name of a single gene of interest is provided so that the resulting tsv file and bed
+# file can be later identified:  right now it is too expensive (and premature) to
+# create a whole genome track with fimo binding site implications of the igap gwas snps
+# instead, for now, we do it one gene of interest at a time.
+geneCentric.bed9.snps <- function(chrom, region.start, region.end, gene, quiet=TRUE, manualEdit=FALSE)
+{
+  tbl.region <- subset(tbl.gwas, CHR==chrom & BP >= region.start & BP <= region.end)   # 102
     # unique rsids provided for each
   max <- nrow(tbl.region)
-  #browser()
-  #max <- 10
   motif.status <- vector(mode="character", length=max)
   for(r in 1:max){
-     printf("assessing motif change for %d/%d", r, max);
+     if(!quiet) printf("assessing motif change for %d/%d", r, max);
      rsid <- tbl.region$SNP[r]
      if(rsid =="rs80174570") rsid <- "rs4614309"
      loc <- tbl.region$BP[r]
-     ambiguity.code <- snpsById(snps, rsid)$alleles_as_ambig
-     elements.string <- IUPAC_CODE_MAP[[ambiguity.code]]
-     elements <- strsplit(elements.string,'')[[1]]
-     wt <- as.character(getSeq(hg38, chrom, loc, loc))
-     mut <- setdiff(elements, wt)
-     status <- ""
-     for(m in 1:length(mut)){
-        mut.1 <- mut[m]
-        new.status <- doComparativeFimo(chrom, loc, wt, mut.1, 10)
-        if(m == 1)
-           status <- new.status
-        else
-          status <- paste(status, new.status, sep=";")
-        printf("%3d) %20s %8d: %s -> %s [%s]", r, rsid, loc, wt, mut.1, status)
-       }
-     motif.status [r] <- status
-     #browser()
-     #xyz <- 99
+     #ambiguity.code <- snpsById(snps, rsid)$alleles_as_ambig
+     #elements.string <- IUPAC_CODE_MAP[[ambiguity.code]]
+     #elements <- strsplit(elements.string,'')[[1]]
+     #dbSNP.wt <- as.character(getSeq(hg38, chrom, loc, loc))
+     #dbSNP.mut <- setdiff(elements, dbSNP.wt)
+     igap.wt <- tbl.region[1, "Non_Effect_allele"]
+     igap.mut <- tbl.region[1, "Effect_allele"]
+     x <- doComparativeFimo(chrom, loc, igap.wt, igap.mut, 10)
+     motif.status[r] <- x$status
+     if(!quiet) printf("%3d) %20s %8d: %s -> %s [%s]", r, rsid, loc, igap.wt, igap.mut, motif.status[r])
      } # for r
 
    tbl.region$status <- motif.status
@@ -419,4 +530,15 @@ test.geneCentric.bed9.snps <- function()
    checkEquals(dim(tbl.b9), c(3, 11))
 
 } # test.geneCentric.bed9.snps
+#------------------------------------------------------------------------------------------------------------------------
+assayMotifChange <- function(gene, upstream, downstream)
+{
+
+} # assayMotifChange
+#------------------------------------------------------------------------------------------------------------------------
+demo.ap2a2.promximal.snps <- function()
+{
+  result <- assayMotifChange("AP2A2", 100, 0)
+
+} # demo.ap2a2.promximal.snps
 #------------------------------------------------------------------------------------------------------------------------
