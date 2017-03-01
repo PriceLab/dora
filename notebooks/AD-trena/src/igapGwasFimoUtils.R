@@ -52,7 +52,11 @@ runTests <- function()
 doComparativeFimo <- function(chrom, base, wt, mut, flank, quiet=TRUE)
 {
    #wt.sequence <- getSequenceByLoc(dna.service, chrom, base-flank, base+flank)
-   wt.sequence <- as.character(getSeq(hg38, chrom, base-flank, base+flank))
+
+   ref.sequence <- as.character(getSeq(hg38, chrom, base-flank, base+flank))
+   wt.sequence <- paste(substr(ref.sequence, 1, flank), wt, substr(ref.sequence, flank+2, 1+(2*flank)), sep="")
+   mut.sequence <- paste(substr(ref.sequence, 1, flank), mut, substr(ref.sequence, flank+2, 1+(2*flank)), sep="")
+
    if(!quiet){
       printf("--- doComparativeFimo %s:%d %s/%s", chrom, base, wt, mut)
       printf("wt:             %s", wt)
@@ -63,8 +67,6 @@ doComparativeFimo <- function(chrom, base, wt, mut, flank, quiet=TRUE)
       printf("right flank:    %s", substr(wt.sequence, flank+1, nchar(wt.sequence)))
       printf("wt as expected: %s", substr(wt.sequence, flank+1, flank+1) == wt)
       }
-
-   mut.sequence <- paste(substr(wt.sequence, 1, flank), mut, substr(wt.sequence, flank+2, 1+(2*flank)), sep="")
 
    if(mut.sequence == wt.sequence) { # due to the flakey data in tbl.gwas.level_1.RData
       printf("    suspicious igap report at %s:%d - mutation same as reference", chrom, base)
