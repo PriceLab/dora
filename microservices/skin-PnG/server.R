@@ -775,7 +775,7 @@ if(!exists("tbl.tss"))
 if(!interactive()) {
    context = init.context()
    socket = init.socket(context,"ZMQ_REP")
-   bind.socket(socket,"tcp://*:5558")
+   bind.socket(socket,"tcp://*:5550")
 
    errorFunction <- function(condition){
      printf("==== exception caught ===")
