@@ -13,6 +13,8 @@ ipyleaflet/staticlab/
 # big data
 rosmap_counts_matrix_normalized_geneSymbols_25031x638.RData
 tbl.gwas.level_1.RData
+mtx.protectedAndExposed.RData
+tbl.protectedAndExposed.RData
 
 # OS X
 .DS_Store
