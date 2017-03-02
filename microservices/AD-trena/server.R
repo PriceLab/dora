@@ -155,7 +155,7 @@ createGeneModel <- function(target.gene, region)
 #------------------------------------------------------------------------------------------------------------------------
 test.createGeneModel <- function()
 {
-   printf("--- test.createGeneModel")
+   printf("--- btest.createGeneModel")
    region <- "7:101,165,571-101,165,620"   # about 25bp up and downstream from the VGF (minus strand) tss, 2 hint brain footprints
    target.gene <- "VGF"
    result <- createGeneModel(target.gene, region)
