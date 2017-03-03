@@ -1,0 +1,5 @@
+targetGene: VGF
+region: chr7:101,165,571-101,165,620
+footprintDB: postgres://whovian/brain_hint
+genomeDB: postgres://whovian/hg38
+expressionData: rosmap_counts_matrix_normalized_geneSymbols_25031x638.RData
