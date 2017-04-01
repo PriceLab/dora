@@ -10,10 +10,18 @@ library(stringr)
 library(graph)
 library(RUnit)
 #------------------------------------------------------------------------------------------------------------------------
-if(!exists("mtx.expression")){
-   print(load("~/github/dora/datasets/skin/mtx.protectedAndExposed.RData"))
-   mtx.expression <- mtx.pAndE
+if(!exists("mtx.protectedAndExposed")){
+   printf("loading expression matrix: %s", load("~/github/dora/datasets/skin/mtx.protectedAndExposed.RData"))
+   mtx.protectedAndExposed <- mtx.pAndE
+   print(dim(mtx.protectedAndExposed))
+   printf("loading expression matrix: %s", load("~/github/dora/datasets/skin/gtex.fib.RData"))
+   mtx.gtexFibroblast <- gtex.fib
+   print(dim(mtx.gtexFibroblast))
+   printf("loading expression matrix: %s", load("~/github/dora/datasets/skin/gtex.primary.RData"))
+   mtx.gtexPrimary <- gtex.primary
+   print(dim(mtx.gtexPrimary))
    }
+
 genome.db.uri    <- "postgres://whovian/hg38"             # has gtf and motifsgenes tables
 footprint.db.uri <- "postgres://whovian/skin_hint"        # has hits and regions tables
 if(!exists("fpf"))
@@ -66,7 +74,7 @@ test.extractChromStartEndFromChromLocString <- function()
 
 }  # test.extractChromStartEndFromChromLocString
 #------------------------------------------------------------------------------------------------------------------------
-createGeneModel <- function(target.gene, region)
+createGeneModel <- function(mtx.expression, target.gene, region)
 {
    printf("--- createGeneModel for %s, %s", target.gene, region)
 
@@ -162,21 +170,36 @@ createGeneModel <- function(target.gene, region)
 test.createGeneModel <- function()
 {
    printf("--- test.createGeneModel")
+
+     #--- first, the original protectedAndExposed expression matrix
    region <- "7:101,165,571-101,165,720"   # about 25bp up and downstream from the VGF (minus strand) tss, 2 hint brain footprints
    target.gene <- "VGF"
-   result <- createGeneModel(target.gene, region)
-   tbl.gm <- result$tbl
-   checkEquals(ncol(tbl.gm), 8)
-   checkTrue(nrow(tbl.gm) > 30)
-   checkEquals(colnames(tbl.gm), c("gene", "gene.cor", "beta", "IncNodePurity","chrom",  "start", "endpos", "distance"))
-   checkTrue(all(c("BHLHE40", "CREB3L1", "MITF") %in% tbl.gm$gene))
-     # try a gene on the minus strand.  no longer works.  don't know why.  readdress this when new ensemble server arrives
-   #target.gene <- "MEF2C"
-   #region <- "5:88,904,000-88,909,000"
-   #result <- createGeneModel(target.gene, region)
-   #tbl.gm <- result$tbl
-   #checkTrue(ncol(tbl.gm) == 8)
-   #checkTrue(nrow(tbl.gm) > 50)
+   result <- createGeneModel(mtx=mtx.protectedAndExposed, target.gene, region)
+   tbl.gm.pAndE <- result$tbl
+   checkEquals(ncol(tbl.gm.pAndE), 8)
+   checkTrue(nrow(tbl.gm.pAndE) > 30)
+   checkEquals(colnames(tbl.gm.pAndE), c("gene", "gene.cor", "beta", "IncNodePurity","chrom",  "start", "endpos", "distance"))
+   checkTrue(all(c("BHLHE40", "CREB3L1", "MITF") %in% tbl.gm.pAndE$gene))
+
+     #--- now the gtex primary expression matrix
+   region <- "7:101,165,571-101,165,720"   # about 25bp up and downstream from the VGF (minus strand) tss, 2 hint brain footprints
+   target.gene <- "VGF"
+   result <- createGeneModel(mtx=mtx.gtexPrimary, target.gene, region)
+   tbl.gm.primary <- result$tbl
+   checkEquals(ncol(tbl.gm.primary), 8)
+   checkTrue(nrow(tbl.gm.primary) > 30)
+   checkEquals(colnames(tbl.gm.primary), c("gene", "gene.cor", "beta", "IncNodePurity","chrom",  "start", "endpos", "distance"))
+   checkTrue(all(c("SP6", "MITF", "THAP6") %in% tbl.gm.primary$gene))
+
+     #--- now the gtex fibroblast matrix
+   region <- "7:101,165,571-101,165,720"   # about 25bp up and downstream from the VGF (minus strand) tss, 2 hint brain footprints
+   target.gene <- "VGF"
+   result <- createGeneModel(mtx=mtx.gtexFibroblast, target.gene, region)
+   tbl.gm.fib <- result$tbl
+   checkEquals(ncol(tbl.gm.fib), 8)
+   checkTrue(nrow(tbl.gm.fib) > 15)
+   checkEquals(colnames(tbl.gm.fib), c("gene", "gene.cor", "beta", "IncNodePurity","chrom",  "start", "endpos", "distance"))
+   checkTrue(all(c("KLF11", "MAZ") %in% tbl.gm.fib$gene))
 
 } # test.createGeneModel
 #------------------------------------------------------------------------------------------------------------------------
