@@ -1,5 +1,7 @@
 # server.R: explore creation and provision of gene models
 #------------------------------------------------------------------------------------------------------------------------
+PORT=5558
+#------------------------------------------------------------------------------------------------------------------------
 library(rzmq)
 library(jsonlite)
 library(RPostgreSQL)
@@ -784,7 +786,7 @@ if(!exists("tbl.tss"))
 if(!interactive()) {
    context = init.context()
    socket = init.socket(context,"ZMQ_REP")
-   bind.socket(socket,"tcp://*:5550")
+   bind.socket(socket, sprintf("tcp://*:%d", PORT))
 
    errorFunction <- function(condition){
      printf("==== exception caught ===")

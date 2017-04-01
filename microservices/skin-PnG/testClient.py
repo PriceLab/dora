@@ -1,9 +1,11 @@
+# testClient.py:  exercise some of the capabilities offered by the TReNA gene model server
+#------------------------------------------------------------------------------------------
+PORT = 5558;
 import zmq
 import json
 socketContext = zmq.Context()
 socket = socketContext.socket(zmq.REQ)
-socket.connect("tcp://localhost:%s" % '5558')
-
+socket.connect("tcp://localhost:%s" % PORT)
 #---------------------------------------------------------------------------
 # the most basic test: send 'ping', expect 'pong'
 #---------------------------------------------------------------------------
@@ -46,9 +48,10 @@ socket.send_string(msg_json)
 response = json.loads(socket.recv_string())
 status = response['status']
 payload = response['payload']
-assert(len(payload) == 2)
+assert(list(payload.keys()) == ['network', 'model', 'footprints'])
 network = payload['network']
 footprints = payload['footprints']
+model = payload['model']
 assert(network[0][:36] == '{"elements": [ {"data": {"id": "VGF"')
 assert(len(footprints[0]) == 3)
 
