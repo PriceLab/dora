@@ -74,7 +74,7 @@ test.extractChromStartEndFromChromLocString <- function()
 
 }  # test.extractChromStartEndFromChromLocString
 #------------------------------------------------------------------------------------------------------------------------
-createGeneModel <- function(mtx.expression, target.gene, region)
+old.createGeneModel <- function(mtx.expression, target.gene, region)
 {
    printf("--- createGeneModel for %s, %s", target.gene, region)
 
@@ -113,9 +113,134 @@ createGeneModel <- function(mtx.expression, target.gene, region)
 
    trena.lasso <- TReNA(mtx.matched, solver="lasso")
    trena.ranfor <- TReNA(mtx.matched, solver="randomForest")
+   trena.all <- TReNA(mtx.matched, solver="ensemble")
 
    out.lasso <- solve(trena.lasso, target.gene, candidate.tfs)
    out.ranfor <- solve(trena.ranfor, target.gene, candidate.tfs)
+   printf("about to solve trena.all")
+   out.all <- solve(trena.all, target.gene, candidate.tfs)
+   browser()
+
+   tbl.01 <- out.lasso
+   if(nrow(tbl.01) == 0)
+      return(list(tbl=data.frame(), msg="no lasso results, skipping RandomForest also"))
+
+   tbl.01 <- tbl.01[, -(grep("^intercept$", colnames(tbl.01)))]
+   tbl.01$gene <- rownames(out.lasso)
+   rownames(tbl.01) <- NULL
+   tbl.01 <- subset(tbl.01, abs(beta) >= absolute.lasso.beta.min &
+                             abs(gene.cor) >= absolute.expression.correlation.min)
+   tbl.02 <- out.ranfor$edges
+   tbl.02$gene <- rownames(tbl.02)
+   rownames(tbl.02) <- NULL
+   if(nrow(tbl.02) == 0)
+      return(list(tbl=data.frame(), msg="no RandomForest results, no result returned"))
+
+
+   tbl.02 <- subset(tbl.02, IncNodePurity >= randomForest.purity.min  &
+                             abs(gene.cor) >= absolute.expression.correlation.min)
+
+   tbl.03 <- merge(tbl.01, tbl.02, all.y=TRUE)
+   tbl.03$beta[is.na(tbl.03$beta)] <- 0
+   tbl.03$IncNodePurity[is.na(tbl.03$IncNodePurity)] <- 0
+
+   fpStarts.list <- lapply(tbl.02$gene, function(gene) subset(tbl.fp, tf==gene)[, c("tf", "chrom", "start", "endpos")])
+   tbl.fpStarts <-  unique(do.call('rbind', fpStarts.list))
+
+   tbl.04 <- merge(tbl.03, tbl.fpStarts, by.x="gene", by.y="tf")
+   tbl.04 <- tbl.04[order(abs(tbl.04$gene.cor), decreasing=TRUE),]
+
+   # footprint.start <- unlist(lapply(rownames(tbl.04), function(gene) subset(tbl.fp, tfe==gene)$start[1]))
+
+   gene.info <- subset(tbl.tss, gene_name==target.gene)[1,]
+
+   if(gene.info$strand  == "+"){
+      gene.start <- gene.info$start
+      tbl.04$distance <- gene.start - tbl.04$start
+   }else{
+      gene.start <- gene.info$endpos
+      tbl.04$distance <-  tbl.04$start - gene.start
+      #tbl.04$distance <-  tbl.04$start - gene.start
+      }
+
+   printf("after distances calculated, distances to %s tss:  %d - %d", target.gene, min(tbl.04$distance), max(tbl.04$distance))
+   print(gene.info)
+   msg <- sprintf("%d putative TFs found", nrow(tbl.04))
+   print(msg)
+   return(list(tbl=tbl.04, msg=msg, tbl.fp=tbl.fp))
+
+} # old.createGeneModel
+#------------------------------------------------------------------------------------------------------------------------
+mergeTFmodelWithRegulatoryRegions <- function(tbl.model, tbl.fp)
+{
+       # tbl.fp may have multiple rows for identical footprints reported from different samples
+       # collapse these down to a single row, with an extra column added for sample count
+
+       # eliminate duplicate footprints: those reported in multiple samples, and on both strands
+       # keep the ones with the highest score3, which is the fimo (motif) pvalue
+    browser()
+
+    tbl.fp.sorted <- tbl.fp[order(tbl.fp$loc, tbl.fp$score3, decreasing=FALSE),]
+    tbl.fp.reduced <- tbl.fp.sorted[-which(duplicated(tbl.fp.sorted$loc)),]
+    tbl.counts <- as.data.frame(table(tbl.fp.sorted$loc))
+    colnames(tbl.counts) <- c("loc", "sampleCount")
+    stopifnot(nrow(tbl.counts) == nrow(tbl.fp.reduced))
+    tbl.fp.reduced <- merge(tbl.fp.reduced, tbl.counts, on="loc")
+    index.of.sampleID.column <- grep("sample_id", colnames(tbl.fp.reduced))
+    stopifnot(length(index.of.sampleID.column) == 1)
+    tbl.fp.reduced <- tbl.fp.reduced[, -index.of.sampleID.column]
+
+    xyz <- 88
+
+} # mergeTFmodelWithRegulatoryRegions
+#------------------------------------------------------------------------------------------------------------------------
+test.mergeTFmodelWithRegulatoryRegions <- function()
+{
+   printf("--- test.mergeTFmodelWithRegulatoryRegions")
+   load("tbl.fp.380x17.forTesting.RData")
+   load("tbl.model.7x9.forTesting.RData")
+   tbl.modelWithRegulatoryRegions <- mergeTFmodelWithRegulatoryRegions(tbl.model, tbl.fp)
+
+} # test.mergeTFmodelWithRegulatoryRegions
+#------------------------------------------------------------------------------------------------------------------------
+createGeneModel <- function(mtx.expression, target.gene, region)
+{
+   printf("--- createGeneModel for %s, %s", target.gene, region)
+
+   if(!target.gene %in% rownames(mtx.expression)){
+      msg <- sprintf("no expression data for %s", target.gene);  # todo: pass this back as payload
+      print(msg)
+      return(list(tbl=data.frame(), msg=msg))
+      }
+
+   region.parsed <- extractChromStartEndFromChromLocString(region)
+   chrom <- region.parsed$chrom
+   start <- region.parsed$start
+   end <-   region.parsed$end
+   printf("region parsed: %s:%d-%d", chrom, start, end);
+
+   tbl.fp <- getFootprintsInRegion(fpf, chrom, start, end)
+   if(nrow(tbl.fp) == 0){
+       msg <- printf("no footprints found within in region %s:%d-%d", chrom, start, end)
+       print(msg)
+       return(list(tbl=data.frame(), msg=msg))
+       }
+
+   printf("range in which fps are requested: %d", end - start)
+   printf("range in which fps are reported:  %d", max(tbl.fp$end) - min(tbl.fp$start))
+   tbl.fptf <- mapMotifsToTFsMergeIntoTable(fpf, tbl.fp)
+   candidate.tfs <- sort(unique(tbl.fptf$tf))
+   candidate.tfs <- intersect(rownames(mtx.expression), candidate.tfs)
+   goi <- sort(unique(c(target.gene, candidate.tfs)))
+
+   browser()
+
+   mtx.matched <- mtx.expression[goi,]
+
+   trena.all <- TReNA(mtx.matched, solver="ensemble")
+   tbl.model <- solve(trena.all, target.gene, candidate.tfs)
+   tbl.modelWithRegulatoryRegions <- mergeTFmodelWithRegulatoryRegions(tbl.model, tbl.tf)
+
 
    tbl.01 <- out.lasso
    if(nrow(tbl.01) == 0)
