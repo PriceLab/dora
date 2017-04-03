@@ -171,14 +171,13 @@ old.createGeneModel <- function(mtx.expression, target.gene, region)
 
 } # old.createGeneModel
 #------------------------------------------------------------------------------------------------------------------------
-mergeTFmodelWithRegulatoryRegions <- function(tbl.model, tbl.fp)
+mergeTFmodelWithRegulatoryRegions <- function(tbl.model, tbl.fp, tbl.fptf, target.gene)
 {
        # tbl.fp may have multiple rows for identical footprints reported from different samples
        # collapse these down to a single row, with an extra column added for sample count
 
        # eliminate duplicate footprints: those reported in multiple samples, and on both strands
        # keep the ones with the highest score3, which is the fimo (motif) pvalue
-    browser()
 
     tbl.fp.sorted <- tbl.fp[order(tbl.fp$loc, tbl.fp$score3, decreasing=FALSE),]
     tbl.fp.reduced <- tbl.fp.sorted[-which(duplicated(tbl.fp.sorted$loc)),]
@@ -189,8 +188,18 @@ mergeTFmodelWithRegulatoryRegions <- function(tbl.model, tbl.fp)
     index.of.sampleID.column <- grep("sample_id", colnames(tbl.fp.reduced))
     stopifnot(length(index.of.sampleID.column) == 1)
     tbl.fp.reduced <- tbl.fp.reduced[, -index.of.sampleID.column]
+    tbl.motifsToTFs <- unique(mapMotifsToTFsMergeIntoTable(fpf, tbl.fp.reduced[, c("name"), drop=FALSE]))
 
-    xyz <- 88
+
+    tfs <- lapply(tbl.fp.reduced$name, function(motifName) {
+        paste(intersect(tbl.model$gene, subset(tbl.motifsToTFs, name==motifName)$tf), collapse=";")
+        })
+
+    tbl.fp.reduced$tfs <- tfs
+    tbl.fp.reduced$target.gene <- target.gene
+
+       # return only those rows were footprints were utilized by the tfs in the target.gene's tbl.model
+    subset(tbl.fp.reduced, nchar(tfs) > 0)
 
 } # mergeTFmodelWithRegulatoryRegions
 #------------------------------------------------------------------------------------------------------------------------
@@ -199,7 +208,11 @@ test.mergeTFmodelWithRegulatoryRegions <- function()
    printf("--- test.mergeTFmodelWithRegulatoryRegions")
    load("tbl.fp.380x17.forTesting.RData")
    load("tbl.model.7x9.forTesting.RData")
-   tbl.modelWithRegulatoryRegions <- mergeTFmodelWithRegulatoryRegions(tbl.model, tbl.fp)
+   load("tbl.fptf.5789.forTesting.RData")
+   load("tbl.model.7x9.VGF.RData")
+   target.gene <- "VGF"
+
+   tbl.modelWithRegulatoryRegions <- mergeTFmodelWithRegulatoryRegions(tbl.model, tbl.fp, tbl.fptf, target.gene)
 
 } # test.mergeTFmodelWithRegulatoryRegions
 #------------------------------------------------------------------------------------------------------------------------
@@ -220,6 +233,7 @@ createGeneModel <- function(mtx.expression, target.gene, region)
    printf("region parsed: %s:%d-%d", chrom, start, end);
 
    tbl.fp <- getFootprintsInRegion(fpf, chrom, start, end)
+
    if(nrow(tbl.fp) == 0){
        msg <- printf("no footprints found within in region %s:%d-%d", chrom, start, end)
        print(msg)
@@ -233,62 +247,29 @@ createGeneModel <- function(mtx.expression, target.gene, region)
    candidate.tfs <- intersect(rownames(mtx.expression), candidate.tfs)
    goi <- sort(unique(c(target.gene, candidate.tfs)))
 
-   browser()
-
    mtx.matched <- mtx.expression[goi,]
 
    trena.all <- TReNA(mtx.matched, solver="ensemble")
-   tbl.model <- solve(trena.all, target.gene, candidate.tfs)
-   tbl.modelWithRegulatoryRegions <- mergeTFmodelWithRegulatoryRegions(tbl.model, tbl.tf)
 
+   tbl.out <- mergeTFmodelWithRegulatoryRegions(tbl.model, tbl.fp, tbl.fptf, target.gene)
 
-   tbl.01 <- out.lasso
-   if(nrow(tbl.01) == 0)
-      return(list(tbl=data.frame(), msg="no lasso results, skipping RandomForest also"))
-
-   tbl.01 <- tbl.01[, -(grep("^intercept$", colnames(tbl.01)))]
-   tbl.01$gene <- rownames(out.lasso)
-   rownames(tbl.01) <- NULL
-   tbl.01 <- subset(tbl.01, abs(beta) >= absolute.lasso.beta.min &
-                             abs(gene.cor) >= absolute.expression.correlation.min)
-   tbl.02 <- out.ranfor$edges
-   tbl.02$gene <- rownames(tbl.02)
-   rownames(tbl.02) <- NULL
-   if(nrow(tbl.02) == 0)
-      return(list(tbl=data.frame(), msg="no RandomForest results, no result returned"))
-
-
-   tbl.02 <- subset(tbl.02, IncNodePurity >= randomForest.purity.min  &
-                             abs(gene.cor) >= absolute.expression.correlation.min)
-
-   tbl.03 <- merge(tbl.01, tbl.02, all.y=TRUE)
-   tbl.03$beta[is.na(tbl.03$beta)] <- 0
-   tbl.03$IncNodePurity[is.na(tbl.03$IncNodePurity)] <- 0
-
-   fpStarts.list <- lapply(tbl.02$gene, function(gene) subset(tbl.fp, tf==gene)[, c("tf", "chrom", "start", "endpos")])
-   tbl.fpStarts <-  unique(do.call('rbind', fpStarts.list))
-
-   tbl.04 <- merge(tbl.03, tbl.fpStarts, by.x="gene", by.y="tf")
-   tbl.04 <- tbl.04[order(abs(tbl.04$gene.cor), decreasing=TRUE),]
-
-   # footprint.start <- unlist(lapply(rownames(tbl.04), function(gene) subset(tbl.fp, tfe==gene)$start[1]))
 
    gene.info <- subset(tbl.tss, gene_name==target.gene)[1,]
 
    if(gene.info$strand  == "+"){
       gene.start <- gene.info$start
-      tbl.04$distance <- gene.start - tbl.04$start
+      tbl.out$distance <- gene.start - tbl.out$start
    }else{
       gene.start <- gene.info$endpos
-      tbl.04$distance <-  tbl.04$start - gene.start
-      #tbl.04$distance <-  tbl.04$start - gene.start
+      tbl.out$distance <-  tbl.out$start - gene.start
+      #tbl.out$distance <-  tbl.out$start - gene.start
       }
 
-   printf("after distances calculated, distances to %s tss:  %d - %d", target.gene, min(tbl.04$distance), max(tbl.04$distance))
+   printf("after distances calculated, distances to %s tss:  %d - %d", target.gene, min(tbl.out$distance), max(tbl.out$distance))
    print(gene.info)
-   msg <- sprintf("%d putative TFs found", nrow(tbl.04))
+   msg <- sprintf("%d putative TFs found", nrow(tbl.out))
    print(msg)
-   return(list(tbl=tbl.04, msg=msg, tbl.fp=tbl.fp))
+   invisible(list(model=tbl.model, regulatoryRegions=tbl.out, msg=msg))
 
 } # createGeneModel
 #------------------------------------------------------------------------------------------------------------------------
@@ -297,30 +278,46 @@ test.createGeneModel <- function()
    printf("--- test.createGeneModel")
 
      #--- first, the original protectedAndExposed expression matrix
-   region <- "7:101,165,571-101,165,720"   # about 25bp up and downstream from the VGF (minus strand) tss, 2 hint brain footprints
-   target.gene <- "VGF"
+   region <- "17:50,203,128-50,203,174"
+   target.gene <- "COL1A1"
    result <- createGeneModel(mtx=mtx.protectedAndExposed, target.gene, region)
-   tbl.gm.pAndE <- result$tbl
-   checkEquals(ncol(tbl.gm.pAndE), 8)
-   checkTrue(nrow(tbl.gm.pAndE) > 30)
-   checkEquals(colnames(tbl.gm.pAndE), c("gene", "gene.cor", "beta", "IncNodePurity","chrom",  "start", "endpos", "distance"))
-   checkTrue(all(c("BHLHE40", "CREB3L1", "MITF") %in% tbl.gm.pAndE$gene))
+   tbl.gm <- result$model
+   checkEquals(ncol(tbl.gm), 9)
+   checkTrue(nrow(tbl.gm) >= 10)
+   checkEquals(colnames(tbl.gm), c("gene", "beta.lasso", "rf.score", "pearson.coeff", "spearman.coeff", "lasso.p.value", "beta.ridge", "extr", "comp"))
 
-     #--- now the gtex primary expression matrix
-   region <- "7:101,165,571-101,165,720"   # about 25bp up and downstream from the VGF (minus strand) tss, 2 hint brain footprints
-   target.gene <- "VGF"
-   result <- createGeneModel(mtx=mtx.gtexPrimary, target.gene, region)
-   tbl.gm.primary <- result$tbl
-   checkEquals(ncol(tbl.gm.primary), 8)
-   checkTrue(nrow(tbl.gm.primary) > 30)
-   checkEquals(colnames(tbl.gm.primary), c("gene", "gene.cor", "beta", "IncNodePurity","chrom",  "start", "endpos", "distance"))
-   checkTrue(all(c("SP6", "MITF", "THAP6") %in% tbl.gm.primary$gene))
+     # allow for stochasticity in the solvers: only 80% match is good enough
+   expected.tfs <- c("GLI2", "SP1", "KLF17", "KLF3", "ZIC3", "GLI1", "KLF1", "KLF2", "KLF14", "GLI3")
+   checkTrue(length(intersect(expected.tfs, tbl.gm.pAndE$gene)) > 0.8 * length(expected.tfs))
+     # now check the footprints
+   tbl.reg <- result$regulatoryRegions
+   checkEquals(dim(tbl.reg), c(5, 20))
+   some.expected.columns <- c("loc", "chrom", "start", "endpos", "name", "sampleCount", "tfs", "target.gene", "distance")
+   checkTrue(all(some.expected.columns %in% colnames(tbl.reg)))
+      # 3 distinct footprint start locations for the 5 footprints
+   checkEquals(sort(unique(tbl.reg$distance)), c(1523, 1530, 1532))
+
+
+     #--- now the gtex primary expression matrix and COL1A1, chr17:50,203,128-50,203,174
+   region <- "17:50,203,128-50,203,174"
+   target.gene <- "COL1A1"
+   result2 <- createGeneModel(mtx=mtx.gtexPrimary, target.gene, region)
+   tbl.gm2 <- result2$model
+   tbl.reg2 <- result2$regulatoryRegions
+   checkEquals(ncol(tbl.gm2), 9)
+   checkTrue(nrow(tbl.gm2) >= 10)
+      # this expression set suggests 3 additional genes
+   checkEquals(setdiff(tbl.gm2$gene, tbl.gm$gene), c("KLF12", "E2F7", "ZIC1"))
+      # just one new motif, for E2F3
+   checkEquals(setdiff(tbl.reg2$name, tbl.reg$name), "MA0471.1")
 
      #--- now the gtex fibroblast matrix
-   region <- "7:101,165,571-101,165,720"   # about 25bp up and downstream from the VGF (minus strand) tss, 2 hint brain footprints
-   target.gene <- "VGF"
-   result <- createGeneModel(mtx=mtx.gtexFibroblast, target.gene, region)
-   tbl.gm.fib <- result$tbl
+   region <- "17:50,203,128-50,203,174"
+   target.gene <- "COL1A1"
+   result3 <- createGeneModel(mtx=mtx.gtexFibroblast, target.gene, region)
+   tbl.gm3 <- result3$model
+   tbl.reg3 <- result3$regulatoryRegions
+
    checkEquals(ncol(tbl.gm.fib), 8)
    checkTrue(nrow(tbl.gm.fib) > 15)
    checkEquals(colnames(tbl.gm.fib), c("gene", "gene.cor", "beta", "IncNodePurity","chrom",  "start", "endpos", "distance"))
