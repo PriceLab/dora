@@ -32,6 +32,8 @@ runTests <- function()
   test.extractChromStartEndFromChromLocString()
   test.createGeneModel();
   test.createGeneModelForRegionWithoutFootprints()
+  test.mergeTFmodelWithRegulatoryRegions()
+
   test.tableToReducedGraph()
   test.tableToFullGraph()
   #test.graphnelToCyjsJSON()
@@ -192,10 +194,10 @@ mergeTFmodelWithRegulatoryRegions <- function(tbl.model, tbl.fp, tbl.fptf, targe
 
 
     tfs <- lapply(tbl.fp.reduced$name, function(motifName) {
-        paste(intersect(tbl.model$gene, subset(tbl.motifsToTFs, name==motifName)$tf), collapse=";")
+       paste(intersect(tbl.model$gene, subset(tbl.motifsToTFs, name==motifName)$tf), collapse=";")
         })
 
-    tbl.fp.reduced$tfs <- tfs
+    tbl.fp.reduced$tfs <- unlist(tfs)
     tbl.fp.reduced$target.gene <- target.gene
 
        # return only those rows were footprints were utilized by the tfs in the target.gene's tbl.model
@@ -213,6 +215,8 @@ test.mergeTFmodelWithRegulatoryRegions <- function()
    target.gene <- "VGF"
 
    tbl.modelWithRegulatoryRegions <- mergeTFmodelWithRegulatoryRegions(tbl.model, tbl.fp, tbl.fptf, target.gene)
+   checkEquals(class(tbl.modelWithRegulatoryRegions$tfs[1]), "character")   # not a list, just a scalar
+   checkEquals(dim(tbl.modelWithRegulatoryRegions), c(21, 19))
 
 } # test.mergeTFmodelWithRegulatoryRegions
 #------------------------------------------------------------------------------------------------------------------------
@@ -250,26 +254,28 @@ createGeneModel <- function(mtx.expression, target.gene, region)
    mtx.matched <- mtx.expression[goi,]
 
    trena.all <- TReNA(mtx.matched, solver="ensemble")
+   tbl.model <- solve(trena.all, target.gene, candidate.tfs)
 
-   tbl.out <- mergeTFmodelWithRegulatoryRegions(tbl.model, tbl.fp, tbl.fptf, target.gene)
+   tbl.regRegions <- mergeTFmodelWithRegulatoryRegions(tbl.model, tbl.fp, tbl.fptf, target.gene)
 
 
    gene.info <- subset(tbl.tss, gene_name==target.gene)[1,]
 
    if(gene.info$strand  == "+"){
       gene.start <- gene.info$start
-      tbl.out$distance <- gene.start - tbl.out$start
+      tbl.regRegions$distance <- gene.start - tbl.regRegions$start
    }else{
       gene.start <- gene.info$endpos
-      tbl.out$distance <-  tbl.out$start - gene.start
-      #tbl.out$distance <-  tbl.out$start - gene.start
+      tbl.regRegions$distance <-  tbl.regRegions$start - gene.start
       }
 
-   printf("after distances calculated, distances to %s tss:  %d - %d", target.gene, min(tbl.out$distance), max(tbl.out$distance))
+   printf("after distances calculated, distances to %s tss:  %d - %d", target.gene,
+          min(tbl.regRegions$distance), max(tbl.regRegions$distance))
    print(gene.info)
-   msg <- sprintf("%d putative TFs found", nrow(tbl.out))
+   msg <- sprintf("%d putative TFs found", nrow(tbl.regRegions))
    print(msg)
-   invisible(list(model=tbl.model, regulatoryRegions=tbl.out, msg=msg))
+   tbl.model$target.gene <- target.gene
+   invisible(list(model=tbl.model, regulatoryRegions=tbl.regRegions, msg=msg))
 
 } # createGeneModel
 #------------------------------------------------------------------------------------------------------------------------
@@ -281,22 +287,21 @@ test.createGeneModel <- function()
    region <- "17:50,203,128-50,203,174"
    target.gene <- "COL1A1"
    result <- createGeneModel(mtx=mtx.protectedAndExposed, target.gene, region)
-   tbl.gm <- result$model
-   checkEquals(ncol(tbl.gm), 9)
-   checkTrue(nrow(tbl.gm) >= 10)
-   checkEquals(colnames(tbl.gm), c("gene", "beta.lasso", "rf.score", "pearson.coeff", "spearman.coeff", "lasso.p.value", "beta.ridge", "extr", "comp"))
+   tbl.gm1 <- result$model
+   checkEquals(ncol(tbl.gm1), 10)
+   checkTrue(nrow(tbl.gm1) >= 10)
+   checkEquals(colnames(tbl.gm1), c("gene", "beta.lasso", "rf.score", "pearson.coeff", "spearman.coeff", "lasso.p.value", "beta.ridge", "extr", "comp", "target.gene"))
 
      # allow for stochasticity in the solvers: only 80% match is good enough
    expected.tfs <- c("GLI2", "SP1", "KLF17", "KLF3", "ZIC3", "GLI1", "KLF1", "KLF2", "KLF14", "GLI3")
-   checkTrue(length(intersect(expected.tfs, tbl.gm.pAndE$gene)) > 0.8 * length(expected.tfs))
+   checkTrue(length(intersect(expected.tfs, tbl.gm1$gene)) > 0.8 * length(expected.tfs))
      # now check the footprints
-   tbl.reg <- result$regulatoryRegions
-   checkEquals(dim(tbl.reg), c(5, 20))
+   tbl.reg1 <- result$regulatoryRegions
+   checkEquals(dim(tbl.reg1), c(5, 20))
    some.expected.columns <- c("loc", "chrom", "start", "endpos", "name", "sampleCount", "tfs", "target.gene", "distance")
-   checkTrue(all(some.expected.columns %in% colnames(tbl.reg)))
+   checkTrue(all(some.expected.columns %in% colnames(tbl.reg1)))
       # 3 distinct footprint start locations for the 5 footprints
-   checkEquals(sort(unique(tbl.reg$distance)), c(1523, 1530, 1532))
-
+   checkEquals(sort(unique(tbl.reg1$distance)), c(1523, 1530, 1532))
 
      #--- now the gtex primary expression matrix and COL1A1, chr17:50,203,128-50,203,174
    region <- "17:50,203,128-50,203,174"
@@ -304,12 +309,12 @@ test.createGeneModel <- function()
    result2 <- createGeneModel(mtx=mtx.gtexPrimary, target.gene, region)
    tbl.gm2 <- result2$model
    tbl.reg2 <- result2$regulatoryRegions
-   checkEquals(ncol(tbl.gm2), 9)
+   checkEquals(ncol(tbl.gm2), 10)
    checkTrue(nrow(tbl.gm2) >= 10)
-      # this expression set suggests 3 additional genes
-   checkEquals(setdiff(tbl.gm2$gene, tbl.gm$gene), c("KLF12", "E2F7", "ZIC1"))
-      # just one new motif, for E2F3
-   checkEquals(setdiff(tbl.reg2$name, tbl.reg$name), "MA0471.1")
+      # the strongest regulator will have at least a somewhat different random forest score
+   gli2.randomForestScore.gm1 <- tbl.gm1$rf.score[grep("GLI2", tbl.gm1$gene)]
+   gli2.randomForestScore.gm2 <- tbl.gm2$rf.score[grep("GLI2", tbl.gm2$gene)]
+   checkTrue(gli2.randomForestScore.gm1 != gli2.randomForestScore.gm2)
 
      #--- now the gtex fibroblast matrix
    region <- "17:50,203,128-50,203,174"
@@ -318,10 +323,11 @@ test.createGeneModel <- function()
    tbl.gm3 <- result3$model
    tbl.reg3 <- result3$regulatoryRegions
 
-   checkEquals(ncol(tbl.gm.fib), 8)
-   checkTrue(nrow(tbl.gm.fib) > 15)
-   checkEquals(colnames(tbl.gm.fib), c("gene", "gene.cor", "beta", "IncNodePurity","chrom",  "start", "endpos", "distance"))
-   checkTrue(all(c("KLF11", "MAZ") %in% tbl.gm.fib$gene))
+   checkEquals(ncol(tbl.gm3), 10)
+   checkTrue(nrow(tbl.gm3) > 8)
+   gli2.randomForestScore.gm2 <- tbl.gm2$rf.score[grep("GLI2", tbl.gm2$gene)]
+   gli2.randomForestScore.gm3 <- tbl.gm3$rf.score[grep("GLI2", tbl.gm3$gene)]
+   checkTrue(gli2.randomForestScore.gm2 != gli2.randomForestScore.gm3)
 
 } # test.createGeneModel
 #------------------------------------------------------------------------------------------------------------------------
@@ -547,6 +553,121 @@ test.tableToFullGraph <- function()
    g3 <- tableToFullGraph(tbl.list)
 
 } # test.tableToFullGraph
+#------------------------------------------------------------------------------------------------------------------------
+# inputs: gene regulatory relationships based on  expression matrix;  tf->motif relationships, based on footprints
+# or DHS regions
+# ---- tbl.gm
+#     gene  beta.lasso  rf.score pearson.coeff spearman.coeff lasso.p.value beta.ridge      extr      comp
+# 3   GLI2  0.60475983 142.54100     0.5502070      0.5491487  7.335592e-42  0.3367981 3.2757760 0.5473809
+# 9    SP1 -0.51113768  16.38076    -0.2312764     -0.2117261  2.375257e-08 -0.4682768 1.6622344 0.5209773
+# 8   KLF3  0.00000000  26.48268    -0.3434527     -0.3460434  7.623461e-02 -0.2240832 1.1230364 0.4828558
+# 6  KLF14  0.47223970  14.43101     0.2030234      0.2043291  4.620686e-07  0.5128977 1.0147872 0.4420333
+# 2   GLI1  0.30687981  77.39057     0.4604366      0.4831637  7.772859e-22  0.2507635 1.8373374 0.4342058
+# 4   GLI3  0.39158815  42.78246     0.3018382      0.2944902  4.301495e-07  0.4283513 1.0943862 0.4160882
+# 5  KLF12  0.29259366  22.38594     0.3252153      0.3297217  2.450808e-06  0.3632248 0.9408277 0.4107541
+# 7   KLF2  0.05067083  20.99742     0.3250322      0.3209939  6.974455e-13  0.1027694 0.9598469 0.4103038
+# 1   E2F7  0.37672574  23.74473     0.2663118      0.3106924  1.700348e-06  0.3932009 0.9401924 0.3954193
+# 10  ZIC1  0.22636250  27.30604     0.2531218      0.2137344  1.597037e-10  0.2364205 0.7622903 0.3252991
+# --- tbl.reg
+#                        loc chrom    start   endpos               type       name length strand method        provenance score1   score2   score3 score4 score5 score6 sampleCount                       tfs target.gene distance
+# 2  chr17:50203137-50203147 chr17 50203137 50203147 motif.in.footprint   MA0471.1     11      -   HINT skin.filler.minid     28 13.70690 1.74e-05     NA     NA     NA           3                      E2F7      COL1A1     1505
+# 6  chr17:50203155-50203164 chr17 50203155 50203164 motif.in.footprint   MA0599.1     10      +   HINT skin.filler.minid     33 14.83670 6.18e-06     NA     NA     NA          18 SP1;KLF3;KLF14;KLF12;KLF2      COL1A1     1523
+# 7  chr17:50203155-50203165 chr17 50203155 50203165 motif.in.footprint   MA0079.3     11      +   HINT skin.filler.minid     40 12.82690 2.53e-05     NA     NA     NA           9 SP1;KLF3;KLF14;KLF12;KLF2      COL1A1     1523
+# 8  chr17:50203155-50203169 chr17 50203155 50203169 motif.in.footprint   MA0516.1     15      +   HINT skin.filler.minid     30  9.53448 9.89e-05     NA     NA     NA           5 SP1;KLF3;KLF14;KLF12;KLF2      COL1A1     1523
+# 9  chr17:50203162-50203173 chr17 50203162 50203173 motif.in.footprint GLI1..3.p2     12      +   HINT skin.filler.minid     33 10.50000 6.74e-05     NA     NA     NA           4            GLI2;GLI1;GLI3      COL1A1     1530
+# 10 chr17:50203164-50203172 chr17 50203164 50203172 motif.in.footprint ZIC1..3.p2      9      +   HINT skin.filler.minid     30 10.44740 8.26e-05     NA     NA     NA           5                      ZIC1      COL1A1     1532
+new.tablesToFullGraph <- function(tbl.gm, tbl.reg)
+{
+   printf("--- tableToFullGraph")
+   printf("genes: %d, motifs: %d", length(tbl.gm$gene), length(tbl.reg$name))
+
+   g <- graphNEL(edgemode = "directed")
+
+   nodeDataDefaults(g, attr = "type") <- "undefined"             # targetGene, tf, footprint
+   nodeDataDefaults(g, attr = "label") <- "default node label"
+   nodeDataDefaults(g, attr = "distance") <- 0
+   nodeDataDefaults(g, attr = "pearson") <- 0
+   nodeDataDefaults(g, attr = "randomForest") <- 0
+   nodeDataDefaults(g, attr = "beta.lasso") <- 0
+   nodeDataDefaults(g, attr = "motif") <- ""
+   nodeDataDefaults(g, attr = "xPos") <- 0
+   nodeDataDefaults(g, attr = "yPos") <- 0
+
+   edgeDataDefaults(g, attr = "edgeType") <- "undefined"
+
+   tfs <- tbl.gm$gene
+   target.gene <- unique(tbl.reg$target.gene)[1]  # expect only one...
+
+   footprint.names <- unlist(lapply(1:nrow(tbl.reg), function(i){
+     distance.from.tss <- tbl.reg$distance[i]
+     footprint.size <- tbl.reg$length[i]
+     if(distance.from.tss < 0)
+        sprintf("%s.fp.downstream.%05d.L%d", target.gene, abs(distance.from.tss), footprint.size)
+      else
+        sprintf("%s.fp.upstream.%05d.L%d", target.gene, distance.from.tss, footprint.size)
+      }))
+
+   tbl.reg$footprint <- footprint.names
+   all.nodes <- unique(c(target.gene, tfs, footprint.names))
+   g <- addNode(all.nodes, g)
+
+   nodeData(g, target.gene, "type") <- "targetGene"
+   nodeData(g, tfs, "type")         <- "TF"
+   nodeData(g, footprint.names, "type")  <- "footprint"
+   nodeData(g, all.nodes, "label")  <- all.nodes
+   nodeData(g, footprint.names, "label") <- tbl.reg$distance
+   nodeData(g, footprint.names, "distance") <- tbl.reg$distance
+   nodeData(g, footprint.names, "motif") <- tbl.reg$name
+
+   nodeData(g, tfs, "pearson") <- tbl.gm$perason.coeff
+   nodeData(g, tfs, "beta.lasso") <- tbl.gm$beta.lasso
+   nodeData(g, tfs, "randomForest") <- tbl.gm$rf.score
+
+   for(i in 1:nrow(tbl.reg)){
+     fp <- tbl.reg$footprint[i]
+     tfs <- strsplit(tbl.reg$tfs[i], ";", fixed=TRUE)[[1]]
+     printf("adding edge for %s, and %d tfs", fp, length(tfs))
+     print(tfs)
+
+     g <- graph::addEdge(rep(fp, length(tfs)), tfs, g)
+     edgeData(g, fp, tfs, "edgeType") <- "bindsTo"
+     } # for i
+
+   g <- graph::addEdge(tbl.reg$footprint, target.gene, g)
+   edgeData(g, tbl.reg$footprint, target.gene, "edgeType") <- "regulatorySiteFor"
+
+   g
+
+} # new.tablesToFullGraph
+#------------------------------------------------------------------------------------------------------------------------
+test.new.tablesToFullGraph <- function()
+{
+   printf("--- test.new.tablesToFullGraph")
+   load("geneModel.COL1A1.6motifs.10genes.RData")
+   stopifnot(exists("tbl.gm"))
+   stopifnot(exists("tbl.reg"))
+   g <- new.tablesToFullGraph(tbl.gm, tbl.reg)
+   checkEquals(sort(nodes(g)),
+               c("COL1A1", "COL1A1.fp.upstream.01505.L11", "COL1A1.fp.upstream.01523.L10", "COL1A1.fp.upstream.01523.L11",
+                 "COL1A1.fp.upstream.01523.L15", "COL1A1.fp.upstream.01530.L12", "COL1A1.fp.upstream.01532.L9",
+                 "E2F7", "GLI1", "GLI2", "GLI3", "KLF12", "KLF14", "KLF2", "KLF3", "SP1", "ZIC1"))
+
+   checkEquals(sort(edgeNames(g)),
+               c("COL1A1.fp.upstream.01505.L11~COL1A1", "COL1A1.fp.upstream.01505.L11~E2F7",
+                 "COL1A1.fp.upstream.01523.L10~COL1A1", "COL1A1.fp.upstream.01523.L10~KLF12",
+                 "COL1A1.fp.upstream.01523.L10~KLF14",  "COL1A1.fp.upstream.01523.L10~KLF2",
+                 "COL1A1.fp.upstream.01523.L10~KLF3",   "COL1A1.fp.upstream.01523.L10~SP1",
+                 "COL1A1.fp.upstream.01523.L11~COL1A1", "COL1A1.fp.upstream.01523.L11~KLF12",
+                 "COL1A1.fp.upstream.01523.L11~KLF14",  "COL1A1.fp.upstream.01523.L11~KLF2",
+                 "COL1A1.fp.upstream.01523.L11~KLF3",   "COL1A1.fp.upstream.01523.L11~SP1",
+                 "COL1A1.fp.upstream.01523.L15~COL1A1", "COL1A1.fp.upstream.01523.L15~KLF12",
+                 "COL1A1.fp.upstream.01523.L15~KLF14",  "COL1A1.fp.upstream.01523.L15~KLF2",
+                 "COL1A1.fp.upstream.01523.L15~KLF3",   "COL1A1.fp.upstream.01523.L15~SP1",
+                 "COL1A1.fp.upstream.01530.L12~COL1A1", "COL1A1.fp.upstream.01530.L12~GLI1",
+                 "COL1A1.fp.upstream.01530.L12~GLI2",   "COL1A1.fp.upstream.01530.L12~GLI3",
+                 "COL1A1.fp.upstream.01532.L9~COL1A1",  "COL1A1.fp.upstream.01532.L9~ZIC1"))
+
+} # test.new.tablesToFullGraph
 #------------------------------------------------------------------------------------------------------------------------
 # {elements: [
 #    {data: {id: 'a', score:5}, position: {x: 100, y: 200}},
@@ -996,7 +1117,6 @@ if(!interactive()) {
               print(8)
               payload <- list(network=json.string, model=tbl.gm, footprints=tbl.fp)
               response <- list(cmd=msg$callback, status="success", callback="", payload=payload)
-              #response <- list(cmd=msg$callback, status="success", callback="", payload=json.string)
               }
            } # createGeneModel
         else {
