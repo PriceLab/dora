@@ -25,15 +25,15 @@ vizmap = [
        "shape": "roundrectangle",
        "width": "40px",
        "height": "30px",
-       "font-size": "14px",
+       "font-size": "8px",
        "background-color": "beige"
        }},
 
    {selector: "node[type='TF']", css: {
       "shape": "ellipse",
-      "background-color": "mapData(beta, 0, 1.0, white, red)",
-      "width": "mapData(purity, 0.0, 30.0, 20.0, 200.0)",
-      "height":"mapData(purity, 0.0, 30.0, 20.0, 200.0)"
+      "background-color": "mapData(pearson, 0, 1.0, white, red)",
+      "width": "mapData(pcaMax, 0.0, 5.0, 20.0, 200.0)",
+      "height":"mapData(pcaMax, 0.0, 5.0, 20.0, 200.0)"
        }},
 
    {selector: "node[type='targetGene']", css: {
@@ -43,11 +43,11 @@ vizmap = [
       "height": 100
        }},
 
-   {selector: "node[type='TF'][beta<=0]", css: {
+   {selector: "node[type='TF'][pearson<=0]", css: {
       "shape": "ellipse",
-      "background-color": "mapData(beta, -1.0, 0, green, white)"
-      //"width": "mapData(purity, 0.0, 30.0, 20.0, 200.0)",
-      //"height":"mapData(purity, 0.0, 30.0, 20.0, 200.0)"
+      "background-color": "mapData(pearson, -1.0, 0, green, white)",
+      "width": "mapData(pcaMax, 0.0, 5.0, 20.0, 200.0)",
+      "height":"mapData(pcaMax, 0.0, 5.0, 20.0, 200.0)"
        }},
 
    {selector: "node[type='tf']", css: {
@@ -93,11 +93,10 @@ vizmap = [
        "text-valign":"center",
        "text-halign":"center",
        "border-color": "black",
-       "content": "data(id)",
+       "content": "data(label)",
        "border-width": "3px",
        "overlay-opacity": 0.2,
        "overlay-color": "gray"
         }}
-
 
    ];

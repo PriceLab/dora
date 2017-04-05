@@ -588,7 +588,9 @@ new.tablesToFullGraph <- function(tbl.gm, tbl.reg)
    nodeDataDefaults(g, attr = "distance") <- 0
    nodeDataDefaults(g, attr = "pearson") <- 0
    nodeDataDefaults(g, attr = "randomForest") <- 0
-   nodeDataDefaults(g, attr = "beta.lasso") <- 0
+   nodeDataDefaults(g, attr = "pcaMax") <- 0
+   nodeDataDefaults(g, attr = "concordance") <- 0
+   nodeDataDefaults(g, attr = "betaLasso") <- 0
    nodeDataDefaults(g, attr = "motif") <- ""
    nodeDataDefaults(g, attr = "xPos") <- 0
    nodeDataDefaults(g, attr = "yPos") <- 0
@@ -620,17 +622,19 @@ new.tablesToFullGraph <- function(tbl.gm, tbl.reg)
    nodeData(g, footprint.names, "motif") <- tbl.reg$name
 
    nodeData(g, tfs, "pearson") <- tbl.gm$pearson.coeff
-   nodeData(g, tfs, "beta.lasso") <- tbl.gm$beta.lasso
+   nodeData(g, tfs, "betaLasso") <- tbl.gm$beta.lasso
    nodeData(g, tfs, "randomForest") <- tbl.gm$rf.score
+   nodeData(g, tfs, "pcaMax") <- tbl.gm$extr
+   nodeData(g, tfs, "concordance") <- tbl.gm$comp
+
 
    for(i in 1:nrow(tbl.reg)){
      fp <- tbl.reg$footprint[i]
      tfs <- strsplit(tbl.reg$tfs[i], ";", fixed=TRUE)[[1]]
      #printf("adding edge for %s, and %d tfs", fp, length(tfs))
      #print(tfs)
-
-     g <- graph::addEdge(rep(fp, length(tfs)), tfs, g)
-     edgeData(g, fp, tfs, "edgeType") <- "bindsTo"
+     g <- graph::addEdge(tfs, rep(fp, length(tfs)), g)
+     edgeData(g, tfs, fp, "edgeType") <- "bindsTo"
      } # for i
 
    g <- graph::addEdge(tbl.reg$footprint, target.gene, g)
@@ -653,21 +657,34 @@ test.new.tablesToFullGraph <- function()
                  "E2F7", "GLI1", "GLI2", "GLI3", "KLF12", "KLF14", "KLF2", "KLF3", "SP1", "ZIC1"))
 
    checkEquals(sort(edgeNames(g)),
-               c("COL1A1.fp.upstream.01505.L11~COL1A1", "COL1A1.fp.upstream.01505.L11~E2F7",
-                 "COL1A1.fp.upstream.01523.L10~COL1A1", "COL1A1.fp.upstream.01523.L10~KLF12",
-                 "COL1A1.fp.upstream.01523.L10~KLF14",  "COL1A1.fp.upstream.01523.L10~KLF2",
-                 "COL1A1.fp.upstream.01523.L10~KLF3",   "COL1A1.fp.upstream.01523.L10~SP1",
-                 "COL1A1.fp.upstream.01523.L11~COL1A1", "COL1A1.fp.upstream.01523.L11~KLF12",
-                 "COL1A1.fp.upstream.01523.L11~KLF14",  "COL1A1.fp.upstream.01523.L11~KLF2",
-                 "COL1A1.fp.upstream.01523.L11~KLF3",   "COL1A1.fp.upstream.01523.L11~SP1",
-                 "COL1A1.fp.upstream.01523.L15~COL1A1", "COL1A1.fp.upstream.01523.L15~KLF12",
-                 "COL1A1.fp.upstream.01523.L15~KLF14",  "COL1A1.fp.upstream.01523.L15~KLF2",
-                 "COL1A1.fp.upstream.01523.L15~KLF3",   "COL1A1.fp.upstream.01523.L15~SP1",
-                 "COL1A1.fp.upstream.01530.L12~COL1A1", "COL1A1.fp.upstream.01530.L12~GLI1",
-                 "COL1A1.fp.upstream.01530.L12~GLI2",   "COL1A1.fp.upstream.01530.L12~GLI3",
-                 "COL1A1.fp.upstream.01532.L9~COL1A1",  "COL1A1.fp.upstream.01532.L9~ZIC1"))
+               c("COL1A1.fp.upstream.01505.L11~COL1A1",
+                 "COL1A1.fp.upstream.01523.L10~COL1A1",
+                 "COL1A1.fp.upstream.01523.L11~COL1A1",
+                 "COL1A1.fp.upstream.01523.L15~COL1A1",
+                 "COL1A1.fp.upstream.01530.L12~COL1A1",
+                 "COL1A1.fp.upstream.01532.L9~COL1A1",
+                 "E2F7~COL1A1.fp.upstream.01505.L11",
+                 "GLI1~COL1A1.fp.upstream.01530.L12",
+                 "GLI2~COL1A1.fp.upstream.01530.L12",
+                 "GLI3~COL1A1.fp.upstream.01530.L12",
+                 "KLF12~COL1A1.fp.upstream.01523.L10",
+                 "KLF12~COL1A1.fp.upstream.01523.L11",
+                 "KLF12~COL1A1.fp.upstream.01523.L15",
+                 "KLF14~COL1A1.fp.upstream.01523.L10",
+                 "KLF14~COL1A1.fp.upstream.01523.L11",
+                 "KLF14~COL1A1.fp.upstream.01523.L15",
+                 "KLF2~COL1A1.fp.upstream.01523.L10",
+                 "KLF2~COL1A1.fp.upstream.01523.L11",
+                 "KLF2~COL1A1.fp.upstream.01523.L15",
+                 "KLF3~COL1A1.fp.upstream.01523.L10",
+                 "KLF3~COL1A1.fp.upstream.01523.L11",
+                 "KLF3~COL1A1.fp.upstream.01523.L15",
+                 "SP1~COL1A1.fp.upstream.01523.L10",
+                 "SP1~COL1A1.fp.upstream.01523.L11",
+                 "SP1~COL1A1.fp.upstream.01523.L15",
+                 "ZIC1~COL1A1.fp.upstream.01532.L9"))
 
-       # --- select a footprint node, check its attributes
+       # --- select one footprint node, check its attributes
     checkEquals(nodeData(g, "COL1A1.fp.upstream.01523.L15", attr="type")[[1]], "footprint")
     checkEquals(nodeData(g, "COL1A1.fp.upstream.01523.L15", attr="label")[[1]], "MA0516.1")
     checkEquals(nodeData(g, "COL1A1.fp.upstream.01523.L15", attr="motif")[[1]], "MA0516.1")
@@ -683,7 +700,7 @@ test.new.tablesToFullGraph <- function()
     checkEquals(length(unlist(nodeData(g, attr="distance"), use.names=FALSE)), nodeCount)
     checkEquals(length(unlist(nodeData(g, attr="pearson"), use.names=FALSE)), nodeCount)
     checkEquals(length(unlist(nodeData(g, attr="randomForest"), use.names=FALSE)), nodeCount)
-    checkEquals(length(unlist(nodeData(g, attr="beta.lasso"), use.names=FALSE)), nodeCount)
+    checkEquals(length(unlist(nodeData(g, attr="betaLasso"), use.names=FALSE)), nodeCount)
     checkEquals(length(unlist(nodeData(g, attr="motif"), use.names=FALSE)), nodeCount)
     checkEquals(length(unlist(nodeData(g, attr="xPos"), use.names=FALSE)), nodeCount)
     checkEquals(length(unlist(nodeData(g, attr="yPos"), use.names=FALSE)), nodeCount)
@@ -698,15 +715,15 @@ test.new.tablesToFullGraph <- function()
 test.displayJSON <- function()
 {
 
-
    # optional
    # try first with a known good example from the RCyjs test suite
-   standard.json.test.file <- system.file(package="RCyjs", "extdata", "g.json")
-   checkTrue(file.exists(standard.json.test.file))
-
+   # standard.json.test.file <- system.file(package="RCyjs", "extdata", "g.json")
+   # checkTrue(file.exists(standard.json.test.file))
 
    g <- test.new.tablesToFullGraph()
-   g.json <- graphToJSON(g)
+   g.lo <- addGeneModelLayout(g)
+
+   g.json <- graphToJSON(g.lo)
    checkTrue(nchar(g.json) > 7000)
    g.json <- sprintf("network = %s", g.json)
    temp.filename <- tempfile(fileext=".json")
@@ -720,8 +737,10 @@ test.displayJSON <- function()
 
    httpAddJsonGraphFromFile(rcy, temp.filename)
    fit(rcy)
-   layout(rcy, "grid")
-   dim(getNodes(rcy))
+   httpSetStyle(rcy, "style.js")
+   #layout(rcy, "grid")
+   checkEquals(nrow(getNodes(rcy)), length(nodes(g)))
+   rcy
 
 } # test.displayJSON
 #------------------------------------------------------------------------------------------------------------------------
@@ -873,8 +892,10 @@ addGeneModelLayout <- function(g)
        footprintLayoutFactor <- 600/span
 
 
-   nodeData(g, fp.nodes, "xPos") <- as.numeric(nodeData(g, fp.nodes, attr="distance")) * footprintLayoutFactor
-   nodeData(g, fp.nodes, "yPos") <- 0
+   xPos <- as.numeric(nodeData(g, fp.nodes, attr="distance")) * footprintLayoutFactor
+   yPos <- 0
+   nodeData(g, fp.nodes, "xPos") <- xPos
+   nodeData(g, fp.nodes, "yPos") <- yPos
 
    adjusted.span.endpoints <- range(c(0, as.numeric(nodeData(g, fp.nodes, attr="xPos"))))
    printf("raw span of footprints: %d   footprintLayoutFactor: %f  new span: %d",
