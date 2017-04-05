@@ -9,6 +9,7 @@ library(TReNA)
 library(stringr)
 library(graph)
 library(RUnit)
+library(RCyjs)
 #------------------------------------------------------------------------------------------------------------------------
 if(!exists("mtx.protectedAndExposed")){
    printf("loading expression matrix: %s", load("~/github/dora/datasets/skin/mtx.protectedAndExposed.RData"))
@@ -121,7 +122,6 @@ old.createGeneModel <- function(mtx.expression, target.gene, region)
    out.ranfor <- solve(trena.ranfor, target.gene, candidate.tfs)
    printf("about to solve trena.all")
    out.all <- solve(trena.all, target.gene, candidate.tfs)
-   browser()
 
    tbl.01 <- out.lasso
    if(nrow(tbl.01) == 0)
@@ -615,19 +615,19 @@ new.tablesToFullGraph <- function(tbl.gm, tbl.reg)
    nodeData(g, tfs, "type")         <- "TF"
    nodeData(g, footprint.names, "type")  <- "footprint"
    nodeData(g, all.nodes, "label")  <- all.nodes
-   nodeData(g, footprint.names, "label") <- tbl.reg$distance
+   nodeData(g, footprint.names, "label") <- tbl.reg$name
    nodeData(g, footprint.names, "distance") <- tbl.reg$distance
    nodeData(g, footprint.names, "motif") <- tbl.reg$name
 
-   nodeData(g, tfs, "pearson") <- tbl.gm$perason.coeff
+   nodeData(g, tfs, "pearson") <- tbl.gm$pearson.coeff
    nodeData(g, tfs, "beta.lasso") <- tbl.gm$beta.lasso
    nodeData(g, tfs, "randomForest") <- tbl.gm$rf.score
 
    for(i in 1:nrow(tbl.reg)){
      fp <- tbl.reg$footprint[i]
      tfs <- strsplit(tbl.reg$tfs[i], ";", fixed=TRUE)[[1]]
-     printf("adding edge for %s, and %d tfs", fp, length(tfs))
-     print(tfs)
+     #printf("adding edge for %s, and %d tfs", fp, length(tfs))
+     #print(tfs)
 
      g <- graph::addEdge(rep(fp, length(tfs)), tfs, g)
      edgeData(g, fp, tfs, "edgeType") <- "bindsTo"
@@ -667,7 +667,63 @@ test.new.tablesToFullGraph <- function()
                  "COL1A1.fp.upstream.01530.L12~GLI2",   "COL1A1.fp.upstream.01530.L12~GLI3",
                  "COL1A1.fp.upstream.01532.L9~COL1A1",  "COL1A1.fp.upstream.01532.L9~ZIC1"))
 
+       # --- select a footprint node, check its attributes
+    checkEquals(nodeData(g, "COL1A1.fp.upstream.01523.L15", attr="type")[[1]], "footprint")
+    checkEquals(nodeData(g, "COL1A1.fp.upstream.01523.L15", attr="label")[[1]], "MA0516.1")
+    checkEquals(nodeData(g, "COL1A1.fp.upstream.01523.L15", attr="motif")[[1]], "MA0516.1")
+    print(checkEquals(nodeData(g, "COL1A1.fp.upstream.01523.L15", attr="distance")[[1]], 1523))
+
+      # null attributes, which should never happen (but just did, by assigning
+      # the noa "pearson" from tbl.gm$perason (note mispelling)) are not
+      # return by the nodeData function.  detect them, therefore, by counting lengths
+
+    nodeCount <- length(nodes(g))
+    checkEquals(length(unlist(nodeData(g, attr="type"), use.names=FALSE)), nodeCount)
+    checkEquals(length(unlist(nodeData(g, attr="label"), use.names=FALSE)), nodeCount)
+    checkEquals(length(unlist(nodeData(g, attr="distance"), use.names=FALSE)), nodeCount)
+    checkEquals(length(unlist(nodeData(g, attr="pearson"), use.names=FALSE)), nodeCount)
+    checkEquals(length(unlist(nodeData(g, attr="randomForest"), use.names=FALSE)), nodeCount)
+    checkEquals(length(unlist(nodeData(g, attr="beta.lasso"), use.names=FALSE)), nodeCount)
+    checkEquals(length(unlist(nodeData(g, attr="motif"), use.names=FALSE)), nodeCount)
+    checkEquals(length(unlist(nodeData(g, attr="xPos"), use.names=FALSE)), nodeCount)
+    checkEquals(length(unlist(nodeData(g, attr="yPos"), use.names=FALSE)), nodeCount)
+
+    edgeCount <- length(edgeNames(g))
+    checkEquals(length(unlist(edgeData(g, attr="edgeType"), use.names=FALSE)), edgeCount)
+
+    invisible(g)
+
 } # test.new.tablesToFullGraph
+#------------------------------------------------------------------------------------------------------------------------
+test.displayJSON <- function()
+{
+
+
+   # optional
+   # try first with a known good example from the RCyjs test suite
+   standard.json.test.file <- system.file(package="RCyjs", "extdata", "g.json")
+   checkTrue(file.exists(standard.json.test.file))
+
+
+   g <- test.new.tablesToFullGraph()
+   g.json <- graphToJSON(g)
+   checkTrue(nchar(g.json) > 7000)
+   g.json <- sprintf("network = %s", g.json)
+   temp.filename <- tempfile(fileext=".json")
+   write(g.json, file=temp.filename)
+
+   PORTS=9047:9097
+   rcy <- RCyjs(PORTS, graph=graphNEL())
+   setBackgroundColor(rcy, "#FAFAFA")
+   setDefaultEdgeColor(rcy, "blue")
+   redraw(rcy)
+
+   httpAddJsonGraphFromFile(rcy, temp.filename)
+   fit(rcy)
+   layout(rcy, "grid")
+   dim(getNodes(rcy))
+
+} # test.displayJSON
 #------------------------------------------------------------------------------------------------------------------------
 # {elements: [
 #    {data: {id: 'a', score:5}, position: {x: 100, y: 200}},
@@ -692,18 +748,23 @@ graphToJSON <- function(g)
     edgeCount <- length(edgeNames)
 
     for(n in 1:nodeCount){
+       printf("---- node %d", n)
        node <- nodes[n]
        x <- sprintf('%s {"data": {"id": "%s"', x, node);
        nodeAttributeCount <- length(noa.names)
        for(i in seq_len(nodeAttributeCount)){
           noa.name <- noa.names[i];
+          printf("node %s, noa.name: %s", node, noa.name)
           value <-  nodeData(g, node, noa.name)[[1]]
           if(is.numeric(value))
              x <- sprintf('%s, "%s": %s', x, noa.name, value)
           else
              x <- sprintf('%s, "%s": "%s"', x, noa.name, value)
-          } # for noa.name
+          #browser();
+          #xyz <- 99
+          } # for i
        x <- sprintf('%s}', x)     # close off this node data element
+       printf("-- x partway: %s", x)
        if(all(c("xPos", "yPos") %in% noa.names)){
            xPos <- as.integer(nodeData(g, node, "xPos"))
            yPos <- as.integer(nodeData(g, node, "yPos"))
@@ -714,6 +775,9 @@ graphToJSON <- function(g)
        if(n != nodeCount)
            x <- sprintf("%s,", x)  # another node coming, add a comma
        } # for n
+
+    #browser()
+    #xyz <- 99
 
     for(e in seq_len(edgeCount)) {
        edgeName <- edgeNames[e]
