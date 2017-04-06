@@ -13,7 +13,7 @@ msg = {"cmd": "ping", "status": "request", "callback": "", "payload": ""}
 msg_json = json.dumps(msg)
 socket.send_string(msg_json)
 response = json.loads(socket.recv_string())
-assert(response['payload'][0] == 'pong')
+assert(response['payload'] == 'pong')
 
 #---------------------------------------------------------------------------
 # another basic test: send 'upcase' with payload'someLowerCaseWord',
@@ -23,26 +23,43 @@ msg = {"cmd": "upcase", "status": "request", "callback": "", "payload": "someLow
 msg_json = json.dumps(msg)
 socket.send_string(msg_json)
 response = json.loads(socket.recv_string())
-assert(response['payload'][0] == 'SOMELOWERCASEWORD')
+assert(response['payload'] == 'SOMELOWERCASEWORD')
+
+#---------------------------------------------------------------------------
+# the TReNA server will often have multiple expression matrices
+# to choose from.  return their names here upon request
+#---------------------------------------------------------------------------
+msg = {"cmd": "getExpressionMatrixNames", "status": "request", "callback": "", "payload": ""}
+msg_json = json.dumps(msg)
+socket.send_string(msg_json)
+response = json.loads(socket.recv_string())
+assert(response['status'] == 'success')
+payload = response['payload']
+assert(response['payload'] == ['skinProtectedAndExposed', 'gtexFibroblast', 'gtexPrimary'])
 
 #---------------------------------------------------------------------------
 # the original core command: createGeneModel, with payload targetGene
 # and footprintRegion.  send in an intentionally bogus targetGene name
 #---------------------------------------------------------------------------
 msg = {"cmd": "createGeneModel", "status": "request", "callback": "",
-       "payload": {"targetGene": "VEGFabcdbogus", "footprintRegion": "7:101,165,593-101,165,630"}}
+       "payload": {"targetGene": "VEGFabcdbogus",
+                   "matrix": "gtexFibroblast",
+                   "footprintRegion": "7:101,165,593-101,165,630"}}
 msg_json = json.dumps(msg)
 socket.send_string(msg_json)
 response = json.loads(socket.recv_string())
-assert(response['status'][0] == 'error')
-assert(response['payload'][0] == 'no expression data for VEGFabcdbogus')
+assert(response['status'] == 'error')
+assert(response['payload'] == 'no expression data for VEGFabcdbogus')
 
 #---------------------------------------------------------------------------
 # the original core command: createGeneModel, with payload targetGene
 # and footprintRegion.  use a good gene name
 #---------------------------------------------------------------------------
 msg = {"cmd": "createGeneModel", "status": "request", "callback": "",
-       "payload": {"targetGene": "VGF", "footprintRegion": "7:101,165,593-101,165,630"}}
+       "payload": {"targetGene": "COL1A1",
+                   "matrix": "gtexFibroblast",
+                   "footprintRegion": "17:50,203,128-50,203,174"}}
+
 msg_json = json.dumps(msg)
 socket.send_string(msg_json)
 response = json.loads(socket.recv_string())

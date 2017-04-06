@@ -757,8 +757,8 @@ if(!interactive()) {
      send.raw.string(socket, toJSON(response))
      };
 
-   tryCatch({
-     while(TRUE) {
+   while(TRUE) {
+      tryCatch({
         printf("top of receive/send loop")
         raw.message <- receive.string(socket)
         msg = fromJSON(raw.message)
@@ -774,6 +774,11 @@ if(!interactive()) {
            infile <- file("vgfModel.json")
            graphModel <- fromJSON(readLines(infile))
            response <- list(cmd=msg$callback, status="result", callback="", payload=graphModel)
+           }
+        else if(msg$cmd == "getExpressionMatrixNames"){
+           printf("getExpressionMatrixNames");
+           response <- list(cmd=msg$callback, status="success", callback="",
+                            payload=c("skinProtectedAndExposed", "gtexFibroblast", "gtexPrimary"))
            }
         else if(msg$cmd == "getFootprintsInRegion"){
           footprintRegion <- msg$payload$footprintRegion;
@@ -794,34 +799,49 @@ if(!interactive()) {
            print(2)
            footprintRegion <- msg$payload$footprintRegion;
            print(3)
-           result <- createGeneModel(targetGene, footprintRegion)
-           tbl.gm <- result$tbl
-           message <- result$msg
-           if(nrow(tbl.gm) == 0){
-              response <- list(cmd=msg$callback, status="error", callback="", payload=message)
-              }
-           else{
-              tbl.list <- list(tbl.gm)
-              print(5)
-              names(tbl.list) <- targetGene
-              graph <- tableToFullGraph(tbl.list)
-              print(colnames(tbl.gm))
-              tbl.fp <- tbl.gm[, c("chrom", "start", "endpos")]
-              print(7)
-              graph.pos <- addGeneModelLayout(graph)
-              json.string <- graphToJSON(graph.pos)
-              print(8)
-              payload <- list(network=json.string, model=tbl.gm, footprints=tbl.fp)
-              response <- list(cmd=msg$callback, status="success", callback="", payload=payload)
-              }
+           expressionMatrixName <- msg$payload$matrix
+           mtx.found <- TRUE
+           if(expressionMatrixName == "skinProtectedAndExposed")
+              mtx <- mtx.protectedAndExposed
+           else if(expressionMatrixName == "gtexFibroblast")
+               mtx <- mtx.protectedAndExposed <- mtx.gtexFibroblast
+           else if(experssionMatrixName == "gtexPrimary")
+               mtx <- mtx.gtexPrimary
+           else
+              mtx.found <- FALSE
+           if(mtx.found) {
+              result <- createGeneModel(mtx, targetGene, footprintRegion)
+              tbl.gm <- result$model
+              tbl.reg <- result$regulatoryRegions
+              message <- result$msg
+              if(nrow(tbl.gm) == 0){
+                response <- list(cmd=msg$callback, status="error", callback="", payload=message)
+                }
+              else{
+                tbl.list <- list(tbl.gm)
+                print(5)
+                names(tbl.list) <- targetGene
+                g <- tablesToFullGraph(tbl.gm, tbl.reg)
+                g.lo <- addGeneModelLayout(g)
+                g.json <- graphToJSON(g.lo)
+                g.json <- sprintf("network = %s", g.json)
+                print(8)
+                payload <- list(network=g.json, model=tbl.gm, footprints=tbl.reg)
+                response <- list(cmd=msg$callback, status="success", callback="", payload=payload)
+                }
+              } # mtx.found
+           if(!mtx.found){
+               response <- list(cmd=msg$callback, status="error", callback="",
+                                payload=sprintf("unrecognized matrix name: '%s'",  expressionMatrixName))
+               }
            } # createGeneModel
         else {
            response <- list(cmd="handleUnrecognizedCommand", status="error", callback="", payload=toupper(raw.message))
            }
         send.raw.string(socket, toJSON(response))
         Sys.sleep(1)
-        } # while (TRUE)
-      }, error=errorFunction); # tryCatch
+        }, error=errorFunction); # tryCatch
+     } # while (TRUE)
 
 } # if !interactive()
 #------------------------------------------------------------------------------------------------------------------------
