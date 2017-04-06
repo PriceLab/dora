@@ -131,7 +131,7 @@ createGeneModel <- function(mtx.expression, target.gene, region)
    if(!target.gene %in% rownames(mtx.expression)){
       msg <- sprintf("no expression data for %s", target.gene);  # todo: pass this back as payload
       print(msg)
-      return(list(tbl=data.frame(), msg=msg))
+      return(list(model=data.frame(), regulatoryRegions=data.frame(), msg=msg))
       }
 
    region.parsed <- extractChromStartEndFromChromLocString(region)
@@ -143,10 +143,10 @@ createGeneModel <- function(mtx.expression, target.gene, region)
    tbl.fp <- getFootprintsInRegion(fpf, chrom, start, end)
 
    if(nrow(tbl.fp) == 0){
-       msg <- printf("no footprints found within in region %s:%d-%d", chrom, start, end)
-       print(msg)
-       return(list(tbl=data.frame(), msg=msg))
-       }
+      msg <- printf("no footprints found within in region %s:%d-%d", chrom, start, end)
+      print(msg)
+      return(list(model=data.frame(), regulatoryRegions=data.frame(), msg=msg))
+      }
 
    printf("range in which fps are requested: %d", end - start)
    printf("range in which fps are reported:  %d", max(tbl.fp$end) - min(tbl.fp$start))
@@ -562,13 +562,13 @@ graphToJSON <- function(g)
     edgeCount <- length(edgeNames)
 
     for(n in 1:nodeCount){
-       printf("---- node %d", n)
+       #printf("---- node %d", n)
        node <- nodes[n]
        x <- sprintf('%s {"data": {"id": "%s"', x, node);
        nodeAttributeCount <- length(noa.names)
        for(i in seq_len(nodeAttributeCount)){
           noa.name <- noa.names[i];
-          printf("node %s, noa.name: %s", node, noa.name)
+          #printf("node %s, noa.name: %s", node, noa.name)
           value <-  nodeData(g, node, noa.name)[[1]]
           if(is.numeric(value))
              x <- sprintf('%s, "%s": %s', x, noa.name, value)
@@ -578,7 +578,7 @@ graphToJSON <- function(g)
           #xyz <- 99
           } # for i
        x <- sprintf('%s}', x)     # close off this node data element
-       printf("-- x partway: %s", x)
+       #printf("-- x partway: %s", x)
        if(all(c("xPos", "yPos") %in% noa.names)){
            xPos <- as.integer(nodeData(g, node, "xPos"))
            yPos <- as.integer(nodeData(g, node, "yPos"))

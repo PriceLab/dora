@@ -69,7 +69,7 @@ assert(list(payload.keys()) == ['network', 'model', 'footprints'])
 network = payload['network']
 footprints = payload['footprints']
 model = payload['model']
-assert(network[0][:36] == '{"elements": [ {"data": {"id": "VGF"')
+assert(network[:50] == 'network = {"elements": [ {"data": {"id": "COL1A1",')
 assert(len(footprints[0]) == 3)
 
 
