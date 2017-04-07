@@ -86,7 +86,13 @@ mergeTFmodelWithRegulatoryRegions <- function(tbl.model, tbl.fp, tbl.fptf, targe
        # keep the ones with the highest score3, which is the fimo (motif) pvalue
 
     tbl.fp.sorted <- tbl.fp[order(tbl.fp$loc, tbl.fp$score3, decreasing=FALSE),]
-    tbl.fp.reduced <- tbl.fp.sorted[-which(duplicated(tbl.fp.sorted$loc)),]
+
+    deleters <- which(duplicated(tbl.fp.sorted$loc))
+    if(length(deleters) > 0)
+       tbl.fp.reduced <- tbl.fp.sorted[-deleters,]
+    else
+       tbl.fp.reduced <- tbl.fp.sorted
+
     tbl.counts <- as.data.frame(table(tbl.fp.sorted$loc))
     colnames(tbl.counts) <- c("loc", "sampleCount")
     stopifnot(nrow(tbl.counts) == nrow(tbl.fp.reduced))
@@ -95,7 +101,6 @@ mergeTFmodelWithRegulatoryRegions <- function(tbl.model, tbl.fp, tbl.fptf, targe
     stopifnot(length(index.of.sampleID.column) == 1)
     tbl.fp.reduced <- tbl.fp.reduced[, -index.of.sampleID.column]
     tbl.motifsToTFs <- unique(mapMotifsToTFsMergeIntoTable(fpf, tbl.fp.reduced[, c("name"), drop=FALSE]))
-
 
     tfs <- lapply(tbl.fp.reduced$name, function(motifName) {
        paste(intersect(tbl.model$gene, subset(tbl.motifsToTFs, name==motifName)$tf), collapse=";")
@@ -270,6 +275,43 @@ test.bugInEnsembleFilter <- function()
 
 
 } # test.bugInEnsembleFilter
+#------------------------------------------------------------------------------------------------------------------------
+test.bug.svd <- function()
+{
+   printf("--- bug.svd")
+
+   # "Error in svd(x, nu = 0): infinite or missing values in 'x'\n"
+
+   target.gene <- "COL1A1"
+   region <- "chr17:50,201,805-50,201,844"
+
+   errorFunction <- function(condition){
+     printf("==== exception caught ===")
+     print(as.character(condition))
+     };
+
+   tryCatch({
+      result <- createGeneModel(mtx=mtx.gtexPrimary, target.gene, region)
+      },
+      error=errorFunction); # tryCatch
+
+} # test.bug.svd
+#------------------------------------------------------------------------------------------------------------------------
+# stopifnot(nrow(tbl.counts) == nrow(tbl.fp.reduced)) triggered when no tbl.fp results to delete
+test.bug3 <- function()
+{
+   target.gene <- "COL1A1"
+   region <- "chr17:50,201,615-50,201,688"
+   mtx <- mtx.gtexPrimary
+   result <- createGeneModel(mtx=mtx.gtexPrimary, target.gene, region)
+   tbl.model <- result$model
+   tbl.reg   <- result$regulatoryRegions
+   msg <- result$msg
+   checkEquals(dim(tbl.model), c(3, 10))
+   checkEquals(dim(tbl.reg), c(2, 20))
+   checkEquals(msg, "2 putative TFs found")
+
+} # test.bug3
 #------------------------------------------------------------------------------------------------------------------------
 tableToReducedGraph <- function(tbl.list)
 {
@@ -805,7 +847,7 @@ if(!interactive()) {
               mtx <- mtx.protectedAndExposed
            else if(expressionMatrixName == "gtexFibroblast")
                mtx <- mtx.protectedAndExposed <- mtx.gtexFibroblast
-           else if(experssionMatrixName == "gtexPrimary")
+           else if(expressionMatrixName == "gtexPrimary")
                mtx <- mtx.gtexPrimary
            else
               mtx.found <- FALSE
@@ -824,7 +866,7 @@ if(!interactive()) {
                 g <- tablesToFullGraph(tbl.gm, tbl.reg)
                 g.lo <- addGeneModelLayout(g)
                 g.json <- graphToJSON(g.lo)
-                g.json <- sprintf("network = %s", g.json)
+                #g.json <- sprintf("network = %s", g.json)
                 print(8)
                 payload <- list(network=g.json, model=tbl.gm, footprints=tbl.reg)
                 response <- list(cmd=msg$callback, status="success", callback="", payload=payload)
@@ -838,7 +880,10 @@ if(!interactive()) {
         else {
            response <- list(cmd="handleUnrecognizedCommand", status="error", callback="", payload=toupper(raw.message))
            }
-        send.raw.string(socket, toJSON(response))
+        printf("--- about to send.raw.string")
+        json.string <- toJSON(response, dataframe="values")
+        # printf("json.string: %s", json.string)
+        send.raw.string(socket, json.string)
         Sys.sleep(1)
         }, error=errorFunction); # tryCatch
      } # while (TRUE)
