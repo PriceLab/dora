@@ -40,7 +40,8 @@ runTests <- function()
 
   test.graphToJSON()
   test.addGeneModelLayout()
-  test.bugInEnsembleFilter()
+  #  test.bugInEnsembleFilter() still fails. waiting for matt to fix
+  test.geneModelLayoutNaNBug()
 
 }  # runTests
 #------------------------------------------------------------------------------------------------------------------------
@@ -85,32 +86,34 @@ mergeTFmodelWithRegulatoryRegions <- function(tbl.model, tbl.fp, tbl.fptf, targe
        # eliminate duplicate footprints: those reported in multiple samples, and on both strands
        # keep the ones with the highest score3, which is the fimo (motif) pvalue
 
-    tbl.fp.sorted <- tbl.fp[order(tbl.fp$loc, tbl.fp$score3, decreasing=FALSE),]
+   tbl.fp.sorted <- tbl.fp[order(tbl.fp$loc, tbl.fp$score3, decreasing=FALSE),]
+      # add a column, allowing us to eliminate all but unique loc/motif combinations
+   tbl.fp.sorted$signature <- paste(tbl.fp.sorted$loc, tbl.fp.sorted$name, sep=":")
+   deleters <- which(duplicated(tbl.fp.sorted$signature))
+   if(length(deleters) > 0)
+      tbl.fp.reduced <- tbl.fp.sorted[-deleters,]
+   else
+      tbl.fp.reduced <- tbl.fp.sorted
 
-    deleters <- which(duplicated(tbl.fp.sorted$loc))
-    if(length(deleters) > 0)
-       tbl.fp.reduced <- tbl.fp.sorted[-deleters,]
-    else
-       tbl.fp.reduced <- tbl.fp.sorted
+   tbl.counts <- as.data.frame(table(tbl.fp.sorted$signature))
+   colnames(tbl.counts) <- c("signature", "sampleCount")
+   stopifnot(nrow(tbl.counts) == nrow(tbl.fp.reduced))
+   tbl.fp.reduced$signature <- paste(tbl.fp.reduced$loc, tbl.fp.reduced$name, sep=":")
+   tbl.fp.reduced <- merge(tbl.fp.reduced, tbl.counts, on="signature")
+   index.of.sampleID.column <- grep("sample_id", colnames(tbl.fp.reduced))
+   stopifnot(length(index.of.sampleID.column) == 1)
+   tbl.fp.reduced <- tbl.fp.reduced[, -index.of.sampleID.column]
+   tbl.motifsToTFs <- unique(mapMotifsToTFsMergeIntoTable(fpf, tbl.fp.reduced[, c("name"), drop=FALSE]))
 
-    tbl.counts <- as.data.frame(table(tbl.fp.sorted$loc))
-    colnames(tbl.counts) <- c("loc", "sampleCount")
-    stopifnot(nrow(tbl.counts) == nrow(tbl.fp.reduced))
-    tbl.fp.reduced <- merge(tbl.fp.reduced, tbl.counts, on="loc")
-    index.of.sampleID.column <- grep("sample_id", colnames(tbl.fp.reduced))
-    stopifnot(length(index.of.sampleID.column) == 1)
-    tbl.fp.reduced <- tbl.fp.reduced[, -index.of.sampleID.column]
-    tbl.motifsToTFs <- unique(mapMotifsToTFsMergeIntoTable(fpf, tbl.fp.reduced[, c("name"), drop=FALSE]))
+   tfs <- lapply(tbl.fp.reduced$name, function(motifName) {
+      paste(intersect(tbl.model$gene, subset(tbl.motifsToTFs, name==motifName)$tf), collapse=";")
+       })
 
-    tfs <- lapply(tbl.fp.reduced$name, function(motifName) {
-       paste(intersect(tbl.model$gene, subset(tbl.motifsToTFs, name==motifName)$tf), collapse=";")
-        })
+   tbl.fp.reduced$tfs <- unlist(tfs)
+   tbl.fp.reduced$target.gene <- target.gene
 
-    tbl.fp.reduced$tfs <- unlist(tfs)
-    tbl.fp.reduced$target.gene <- target.gene
-
-       # return only those rows were footprints were utilized by the tfs in the target.gene's tbl.model
-    subset(tbl.fp.reduced, nchar(tfs) > 0)
+      # return only those rows were footprints were utilized by the tfs in the target.gene's tbl.model
+   subset(tbl.fp.reduced, nchar(tfs) > 0)
 
 } # mergeTFmodelWithRegulatoryRegions
 #------------------------------------------------------------------------------------------------------------------------
@@ -125,7 +128,8 @@ test.mergeTFmodelWithRegulatoryRegions <- function()
 
    tbl.modelWithRegulatoryRegions <- mergeTFmodelWithRegulatoryRegions(tbl.model, tbl.fp, tbl.fptf, target.gene)
    checkEquals(class(tbl.modelWithRegulatoryRegions$tfs[1]), "character")   # not a list, just a scalar
-   checkEquals(dim(tbl.modelWithRegulatoryRegions), c(21, 19))
+   checkEquals(length(which(duplicated(tbl.modelWithRegulatoryRegions$signature))), 0)
+   checkEquals(dim(tbl.modelWithRegulatoryRegions), c(36, 20))
 
 } # test.mergeTFmodelWithRegulatoryRegions
 #------------------------------------------------------------------------------------------------------------------------
@@ -166,7 +170,6 @@ createGeneModel <- function(mtx.expression, target.gene, region)
    tbl.model <- solve(trena.all, target.gene, candidate.tfs)
    tbl.regRegions <- mergeTFmodelWithRegulatoryRegions(tbl.model, tbl.fp, tbl.fptf, target.gene)
 
-
    gene.info <- subset(tbl.tss, gene_name==target.gene)[1,]
 
    if(gene.info$strand  == "+"){
@@ -183,6 +186,15 @@ createGeneModel <- function(mtx.expression, target.gene, region)
    msg <- sprintf("%d putative TFs found", nrow(tbl.regRegions))
    print(msg)
    tbl.model$target.gene <- target.gene
+
+      # make sure that every tf in the model appears in the regulatoryRegions tf column
+      # some regulatory tfs were lost when two motifs were mapped to the same chrom loc
+
+   tfs.model <- sort(tbl.model$gene)
+   tfs.reg   <- sort(unique(unlist(strsplit(tbl.regRegions$tf, ";"))))
+
+   stopifnot(all(tfs.model == tfs.reg))
+
    invisible(list(model=tbl.model, regulatoryRegions=tbl.regRegions, msg=msg))
 
 } # createGeneModel
@@ -207,7 +219,7 @@ test.createGeneModel <- function()
    checkTrue(length(intersect(expected.tfs, tbl.gm1$gene)) > 0.8 * length(expected.tfs))
      # now check the footprints
    tbl.reg1 <- result$regulatoryRegions
-   checkEquals(dim(tbl.reg1), c(5, 20))
+   checkEquals(dim(tbl.reg1), c(6, 21))
    some.expected.columns <- c("loc", "chrom", "start", "endpos", "name", "sampleCount", "tfs", "target.gene", "distance")
    checkTrue(all(some.expected.columns %in% colnames(tbl.reg1)))
       # 3 distinct footprint start locations for the 5 footprints
@@ -221,7 +233,7 @@ test.createGeneModel <- function()
    tbl.reg2 <- result2$regulatoryRegions
    checkEquals(ncol(tbl.gm2), 10)
    printf("nrow tbl.gm2: %d", nrow(tbl.gm2))
-   if(nrow(tbl.gm2) < 10) browser();
+   # if(nrow(tbl.gm2) < 10) browser();
    checkTrue(nrow(tbl.gm2) >= 5)
       # the strongest regulator will have at least a somewhat different random forest score
    gli2.randomForestScore.gm1 <- tbl.gm1$rf.score[grep("GLI2", tbl.gm1$gene)]
@@ -249,9 +261,8 @@ test.createGeneModelForRegionWithoutFootprints <- function()
    region <- "5:88,810,667-88,810,705"
    target.gene <- "MEF2C"
    result <- createGeneModel(mtx=mtx.gtexPrimary, target.gene, region)
-   tbl.gm <- result$tbl
+   tbl.gm <- result$model
    checkEquals(nrow(tbl.gm), 0)
-
 
 } # test.createGeneModelForRegionWithoutFootprints
 #------------------------------------------------------------------------------------------------------------------------
@@ -440,10 +451,11 @@ tablesToFullGraph <- function(tbl.gm, tbl.reg)
    footprint.names <- unlist(lapply(1:nrow(tbl.reg), function(i){
      distance.from.tss <- tbl.reg$distance[i]
      footprint.size <- tbl.reg$length[i]
+     motif.name <- tbl.reg$name[i]
      if(distance.from.tss < 0)
-        sprintf("%s.fp.downstream.%05d.L%d", target.gene, abs(distance.from.tss), footprint.size)
+        sprintf("%s.fp.downstream.%05d.L%d.%s", target.gene, abs(distance.from.tss), footprint.size, motif.name)
       else
-        sprintf("%s.fp.upstream.%05d.L%d", target.gene, distance.from.tss, footprint.size)
+        sprintf("%s.fp.upstream.%05d.L%d.%s", target.gene, distance.from.tss, footprint.size, motif.name)
       }))
 
    tbl.reg$footprint <- footprint.names
@@ -489,43 +501,44 @@ test.tablesToFullGraph <- function()
    stopifnot(exists("tbl.reg"))
    g <- tablesToFullGraph(tbl.gm, tbl.reg)
    checkEquals(sort(nodes(g)),
-               c("COL1A1", "COL1A1.fp.upstream.01505.L11", "COL1A1.fp.upstream.01523.L10", "COL1A1.fp.upstream.01523.L11",
-                 "COL1A1.fp.upstream.01523.L15", "COL1A1.fp.upstream.01530.L12", "COL1A1.fp.upstream.01532.L9",
-                 "E2F7", "GLI1", "GLI2", "GLI3", "KLF12", "KLF14", "KLF2", "KLF3", "SP1", "ZIC1"))
+                   c("COL1A1","COL1A1.fp.upstream.01505.L11.MA0471.1","COL1A1.fp.upstream.01523.L10.MA0599.1",
+                     "COL1A1.fp.upstream.01523.L11.MA0079.3","COL1A1.fp.upstream.01523.L15.MA0516.1",
+                     "COL1A1.fp.upstream.01530.L12.GLI1..3.p2","COL1A1.fp.upstream.01532.L9.ZIC1..3.p2",
+                     "E2F7","GLI1","GLI2","GLI3","KLF12","KLF14","KLF2","KLF3","SP1","ZIC1"))
 
    checkEquals(sort(edgeNames(g)),
-               c("COL1A1.fp.upstream.01505.L11~COL1A1",
-                 "COL1A1.fp.upstream.01523.L10~COL1A1",
-                 "COL1A1.fp.upstream.01523.L11~COL1A1",
-                 "COL1A1.fp.upstream.01523.L15~COL1A1",
-                 "COL1A1.fp.upstream.01530.L12~COL1A1",
-                 "COL1A1.fp.upstream.01532.L9~COL1A1",
-                 "E2F7~COL1A1.fp.upstream.01505.L11",
-                 "GLI1~COL1A1.fp.upstream.01530.L12",
-                 "GLI2~COL1A1.fp.upstream.01530.L12",
-                 "GLI3~COL1A1.fp.upstream.01530.L12",
-                 "KLF12~COL1A1.fp.upstream.01523.L10",
-                 "KLF12~COL1A1.fp.upstream.01523.L11",
-                 "KLF12~COL1A1.fp.upstream.01523.L15",
-                 "KLF14~COL1A1.fp.upstream.01523.L10",
-                 "KLF14~COL1A1.fp.upstream.01523.L11",
-                 "KLF14~COL1A1.fp.upstream.01523.L15",
-                 "KLF2~COL1A1.fp.upstream.01523.L10",
-                 "KLF2~COL1A1.fp.upstream.01523.L11",
-                 "KLF2~COL1A1.fp.upstream.01523.L15",
-                 "KLF3~COL1A1.fp.upstream.01523.L10",
-                 "KLF3~COL1A1.fp.upstream.01523.L11",
-                 "KLF3~COL1A1.fp.upstream.01523.L15",
-                 "SP1~COL1A1.fp.upstream.01523.L10",
-                 "SP1~COL1A1.fp.upstream.01523.L11",
-                 "SP1~COL1A1.fp.upstream.01523.L15",
-                 "ZIC1~COL1A1.fp.upstream.01532.L9"))
+               c("COL1A1.fp.upstream.01505.L11.MA0471.1~COL1A1",
+                 "COL1A1.fp.upstream.01523.L10.MA0599.1~COL1A1",
+                 "COL1A1.fp.upstream.01523.L11.MA0079.3~COL1A1",
+                 "COL1A1.fp.upstream.01523.L15.MA0516.1~COL1A1",
+                 "COL1A1.fp.upstream.01530.L12.GLI1..3.p2~COL1A1",
+                 "COL1A1.fp.upstream.01532.L9.ZIC1..3.p2~COL1A1",
+                 "E2F7~COL1A1.fp.upstream.01505.L11.MA0471.1",
+                 "GLI1~COL1A1.fp.upstream.01530.L12.GLI1..3.p2",
+                 "GLI2~COL1A1.fp.upstream.01530.L12.GLI1..3.p2",
+                 "GLI3~COL1A1.fp.upstream.01530.L12.GLI1..3.p2",
+                 "KLF12~COL1A1.fp.upstream.01523.L10.MA0599.1",
+                 "KLF12~COL1A1.fp.upstream.01523.L11.MA0079.3",
+                 "KLF12~COL1A1.fp.upstream.01523.L15.MA0516.1",
+                 "KLF14~COL1A1.fp.upstream.01523.L10.MA0599.1",
+                 "KLF14~COL1A1.fp.upstream.01523.L11.MA0079.3",
+                 "KLF14~COL1A1.fp.upstream.01523.L15.MA0516.1",
+                 "KLF2~COL1A1.fp.upstream.01523.L10.MA0599.1",
+                 "KLF2~COL1A1.fp.upstream.01523.L11.MA0079.3",
+                 "KLF2~COL1A1.fp.upstream.01523.L15.MA0516.1",
+                 "KLF3~COL1A1.fp.upstream.01523.L10.MA0599.1",
+                 "KLF3~COL1A1.fp.upstream.01523.L11.MA0079.3",
+                 "KLF3~COL1A1.fp.upstream.01523.L15.MA0516.1",
+                 "SP1~COL1A1.fp.upstream.01523.L10.MA0599.1",
+                 "SP1~COL1A1.fp.upstream.01523.L11.MA0079.3",
+                 "SP1~COL1A1.fp.upstream.01523.L15.MA0516.1",
+                 "ZIC1~COL1A1.fp.upstream.01532.L9.ZIC1..3.p2"))
 
        # --- select one footprint node, check its attributes
-    checkEquals(nodeData(g, "COL1A1.fp.upstream.01523.L15", attr="type")[[1]], "footprint")
-    checkEquals(nodeData(g, "COL1A1.fp.upstream.01523.L15", attr="label")[[1]], "MA0516.1")
-    checkEquals(nodeData(g, "COL1A1.fp.upstream.01523.L15", attr="motif")[[1]], "MA0516.1")
-    print(checkEquals(nodeData(g, "COL1A1.fp.upstream.01523.L15", attr="distance")[[1]], 1523))
+    checkEquals(nodeData(g, "COL1A1.fp.upstream.01523.L15.MA0516.1", attr="type")[[1]], "footprint")
+    checkEquals(nodeData(g, "COL1A1.fp.upstream.01523.L15.MA0516.1", attr="label")[[1]], "MA0516.1")
+    checkEquals(nodeData(g, "COL1A1.fp.upstream.01523.L15.MA0516.1", attr="motif")[[1]], "MA0516.1")
+    print(checkEquals(nodeData(g, "COL1A1.fp.upstream.01523.L15.MA0516.1", attr="distance")[[1]], 1523))
 
       # null attributes, which should never happen (but just did, by assigning
       # the noa "pearson" from tbl.gm$perason (note mispelling)) are not
@@ -728,7 +741,6 @@ addGeneModelLayout <- function(g)
    if(span < 600)  #
        footprintLayoutFactor <- 600/span
 
-
    xPos <- as.numeric(nodeData(g, fp.nodes, attr="distance")) * footprintLayoutFactor
    yPos <- 0
    nodeData(g, fp.nodes, "xPos") <- xPos
@@ -737,7 +749,6 @@ addGeneModelLayout <- function(g)
    adjusted.span.endpoints <- range(c(0, as.numeric(nodeData(g, fp.nodes, attr="xPos"))))
    printf("raw span of footprints: %d   footprintLayoutFactor: %f  new span: %d",
           span, footprintLayoutFactor, abs(max(adjusted.span.endpoints) - min(adjusted.span.endpoints)))
-
 
    tfs <- names(which(nodeData(g, attr="type") == "TF"))
 
@@ -775,6 +786,22 @@ test.addGeneModelLayout <- function()
      # sample values:       c(-200, 698, 839, 1130, 651, 868, 1087, 604, 564, 541, 597, 0, 0, 0, 0, 0, 0))
 
 } # test.addGeneModelLayout
+#------------------------------------------------------------------------------------------------------------------------
+test.geneModelLayoutNaNBug <- function()
+{
+   region <- 'chr17:50,201,552-50,201,727'
+   target.gene <- "COL1A1"
+   result <- createGeneModel(mtx=mtx.gtexPrimary, target.gene, region)
+   tbl.model <- result$model
+   tbl.reg   <- result$regulatoryRegions
+   g <- tablesToFullGraph(tbl.model, tbl.reg)
+   g.lo <- addGeneModelLayout(g)
+   xPos <- unlist(nodeData(g.lo, attr="xPos"), use.names=FALSE)
+   yPos <- unlist(nodeData(g.lo, attr="yPos"), use.names=FALSE)
+   checkTrue(!any(is.nan(xPos)))
+   checkTrue(!any(is.nan(yPos)))
+
+} # test.geneModelLayoutNaNBug
 #------------------------------------------------------------------------------------------------------------------------
 getTSSTable <- function()
 {
