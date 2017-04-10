@@ -1,6 +1,6 @@
 # server.R: explore creation and provision of gene models
 #------------------------------------------------------------------------------------------------------------------------
-PORT=5558
+PORT=5550
 #------------------------------------------------------------------------------------------------------------------------
 library(rzmq)
 library(jsonlite)
@@ -33,6 +33,7 @@ runTests <- function()
   test.extractChromStartEndFromChromLocString()
   test.createGeneModel();
   test.createGeneModelForRegionWithoutFootprints()
+  test.createGeneModelMultipleRegions();
   test.mergeTFmodelWithRegulatoryRegions()
 
   test.tableToReducedGraph()
@@ -133,9 +134,10 @@ test.mergeTFmodelWithRegulatoryRegions <- function()
 
 } # test.mergeTFmodelWithRegulatoryRegions
 #------------------------------------------------------------------------------------------------------------------------
-createGeneModel <- function(mtx.expression, target.gene, region)
+createGeneModel <- function(mtx.expression, target.gene, regions)
 {
-   printf("--- createGeneModel for %s, %s", target.gene, region)
+   regions.string <- paste(regions, collapse="; ")
+   printf("--- createGeneModel for %s, %s", target.gene, regions.string)
 
    if(!target.gene %in% rownames(mtx.expression)){
       msg <- sprintf("no expression data for %s", target.gene);  # todo: pass this back as payload
@@ -143,13 +145,16 @@ createGeneModel <- function(mtx.expression, target.gene, region)
       return(list(model=data.frame(), regulatoryRegions=data.frame(), msg=msg))
       }
 
-   region.parsed <- extractChromStartEndFromChromLocString(region)
-   chrom <- region.parsed$chrom
-   start <- region.parsed$start
-   end <-   region.parsed$end
-   printf("region parsed: %s:%d-%d", chrom, start, end);
-
-   tbl.fp <- getFootprintsInRegion(fpf, chrom, start, end)
+   tbl.fp <- data.frame()
+   for(region in regions){
+      region.parsed <- extractChromStartEndFromChromLocString(region)
+      chrom <- region.parsed$chrom
+      start <- region.parsed$start
+      end <-   region.parsed$end
+      printf("region parsed: %s:%d-%d", chrom, start, end);
+      tbl.fp.new <- getFootprintsInRegion(fpf, chrom, start, end)
+      tbl.fp <- rbind(tbl.fp, tbl.fp.new)
+      }
 
    if(nrow(tbl.fp) == 0){
       msg <- printf("no footprints found within in region %s:%d-%d", chrom, start, end)
@@ -265,6 +270,24 @@ test.createGeneModelForRegionWithoutFootprints <- function()
    checkEquals(nrow(tbl.gm), 0)
 
 } # test.createGeneModelForRegionWithoutFootprints
+#------------------------------------------------------------------------------------------------------------------------
+test.createGeneModelMultipleRegions <- function()
+{
+   printf("--- test.createGeneModelMultipleRegions")
+
+     #--- first, the original protectedAndExposed expression matrix
+   region.1 <- "chr17:50,201,500-50,201,875"   # 376 bp: ELK3, MAX, NPAS3, MYCN, ETV6, SPIB, GFI1, SP7, PAX5, FEV
+   region.2 <- "chr17:50,203,211-50,203,285"   # 75 bp: TCF4, BHLHE22, ELK3, TCF23, ETV6, SP4, ETV6, SPIB, KLF1, FEV
+   target.gene <- "COL1A1"
+   result <- createGeneModel(mtx=mtx.protectedAndExposed, target.gene, regions=c(region.1, region.2))
+   tbl.gm <- result$model
+   checkEquals(ncol(tbl.gm1), 10)
+   checkTrue(nrow(tbl.gm1) >= 10)
+   checkEquals(colnames(tbl.gm1), c("gene", "beta.lasso", "rf.score", "pearson.coeff", "spearman.coeff", "lasso.p.value", "beta.ridge", "extr", "comp", "target.gene"))
+   checkEquals(head(tbl.gm[order(tbl.gm$rf.score, decreasing=TRUE),]$gene),
+               c("TCF4", "BHLHE22", "ELK3", "MAX", "MXI1", "HAND2"))
+
+} # test.createGeneModelMultipleRegions
 #------------------------------------------------------------------------------------------------------------------------
 test.bugInEnsembleFilter <- function()
 {
