@@ -1,6 +1,6 @@
 # testClient.py:  exercise some of the capabilities offered by the TReNA gene model server
 #------------------------------------------------------------------------------------------
-PORT = 5558;
+PORT = 5550;
 import zmq
 import json
 socketContext = zmq.Context()
@@ -39,12 +39,12 @@ assert(response['payload'] == ['skinProtectedAndExposed', 'gtexFibroblast', 'gte
 
 #---------------------------------------------------------------------------
 # the original core command: createGeneModel, with payload targetGene
-# and footprintRegion.  send in an intentionally bogus targetGene name
+# and genomicRegions.  send in an intentionally bogus targetGene name
 #---------------------------------------------------------------------------
 msg = {"cmd": "createGeneModel", "status": "request", "callback": "",
        "payload": {"targetGene": "VEGFabcdbogus",
                    "matrix": "gtexFibroblast",
-                   "footprintRegion": "7:101,165,593-101,165,630"}}
+                   "genomicRegions": "7:101,165,593-101,165,630"}}
 msg_json = json.dumps(msg)
 socket.send_string(msg_json)
 response = json.loads(socket.recv_string())
@@ -53,12 +53,12 @@ assert(response['payload'] == 'no expression data for VEGFabcdbogus')
 
 #---------------------------------------------------------------------------
 # the original core command: createGeneModel, with payload targetGene
-# and footprintRegion.  use a good gene name
+# and genomicRegions.  use a good gene name
 #---------------------------------------------------------------------------
 msg = {"cmd": "createGeneModel", "status": "request", "callback": "",
        "payload": {"targetGene": "COL1A1",
                    "matrix": "gtexFibroblast",
-                   "footprintRegion": "17:50,203,128-50,203,174"}}
+                   "genomicRegions": "chr17:50,201,534-50,201,728"}}
 
 msg_json = json.dumps(msg)
 socket.send_string(msg_json)
@@ -70,6 +70,27 @@ network = payload['network']
 footprints = payload['footprints']
 model = payload['model']
 assert(network[:40] == '{"elements": [ {"data": {"id": "COL1A1",')
-assert(len(footprints[0]) == 17)
+assert(len(footprints) == 9)
+
+#---------------------------------------------------------------------------
+# the original core command: createGeneModel, with payload targetGene
+# and, this time, two genomicRegions.  use a good gene name
+#---------------------------------------------------------------------------
+msg = {"cmd": "createGeneModel", "status": "request", "callback": "",
+       "payload": {"targetGene": "COL1A1",
+                   "matrix": "gtexFibroblast",
+                   "genomicRegions": ["chr17:50,201,534-50,201,632", "chr17:50,201,631-50,201,728"]}}
+
+msg_json = json.dumps(msg)
+socket.send_string(msg_json)
+response = json.loads(socket.recv_string())
+status = response['status']
+payload = response['payload']
+assert(list(payload.keys()) == ['network', 'model', 'footprints'])
+network = payload['network']
+footprints = payload['footprints']
+model = payload['model']
+assert(network[:40] == '{"elements": [ {"data": {"id": "COL1A1",')
+assert(len(footprints) == 9)
 
 

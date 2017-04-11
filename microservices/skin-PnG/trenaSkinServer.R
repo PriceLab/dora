@@ -889,7 +889,9 @@ if(!interactive()) {
            print(1)
            targetGene <- msg$payload$targetGene;
            print(2)
-           footprintRegion <- msg$payload$footprintRegion;
+           genomicRegions <- msg$payload$genomicRegions
+           printf("--- genomicRegions")
+           print(genomicRegions)
            print(3)
            expressionMatrixName <- msg$payload$matrix
            mtx.found <- TRUE
@@ -902,7 +904,7 @@ if(!interactive()) {
            else
               mtx.found <- FALSE
            if(mtx.found) {
-              result <- createGeneModel(mtx, targetGene, footprintRegion)
+              result <- createGeneModel(mtx, targetGene, genomicRegions)
               tbl.gm <- result$model
               tbl.reg <- result$regulatoryRegions
               message <- result$msg
