@@ -2,15 +2,6 @@
 #------------------------------------------------------------------------------------------------------------------------
 PORT=5551
 #------------------------------------------------------------------------------------------------------------------------
-library(rzmq)
-library(jsonlite)
-library(RPostgreSQL)
-library(TReNA)
-library(stringr)
-library(graph)
-library(RUnit)
-library(RCyjs)
-#------------------------------------------------------------------------------------------------------------------------
 if(!exists("mtx.rosmap")){
    load("../../datasets/AD/rosmap_counts_matrix_normalized_geneSymbols_25031x638.RData")
    mtx.asinh <- asinh(mtx)
@@ -23,6 +14,23 @@ footprint.db.uri <- "postgres://whovian/brain_hint"        # has hits and region
 if(!exists("fpf"))
    fpf <- FootprintFinder(genome.db.uri, footprint.db.uri, quiet=TRUE)
 
+#------------------------------------------------------------------------------------------------------------------------
+if(!exists("mtx.protectedAndExposed")){
+   printf("loading expression matrix: %s", load("~/github/dora/datasets/skin/mtx.protectedAndExposed.RData"))
+   mtx.protectedAndExposed <- mtx.pAndE
+   print(dim(mtx.protectedAndExposed))
+   printf("loading expression matrix: %s", load("~/github/dora/datasets/skin/gtex.fib.RData"))
+   mtx.gtexFibroblast <- gtex.fib
+   print(dim(mtx.gtexFibroblast))
+   printf("loading expression matrix: %s", load("~/github/dora/datasets/skin/gtex.primary.RData"))
+   mtx.gtexPrimary <- gtex.primary
+   print(dim(mtx.gtexPrimary))
+   }
+
+genome.db.uri    <- "postgres://whovian/hg38"             # has gtf and motifsgenes tables
+footprint.db.uri <- "postgres://whovian/skin_hint"        # has hits and regions tables
+if(!exists("fpf"))
+   fpf <- FootprintFinder(genome.db.uri, footprint.db.uri, quiet=TRUE)
 #------------------------------------------------------------------------------------------------------------------------
 runTests <- function()
 {
@@ -169,7 +177,12 @@ createGeneModel <- function(mtx.expression, target.gene, regions)
    mtx.matched <- mtx.expression[goi,]
 
    trena.all <- TReNA(mtx.matched, solver="ensemble")
-   tbl.model <- solve(trena.all, target.gene, candidate.tfs)
+
+       # leave out sqrt.lasso for now
+   solvers <- c("lasso", "ridge", "randomForest", "sqrtlasso", "lassopv", "pearson", "spearman")
+
+   printf("----] target.gene: %s", target.gene)
+   tbl.model <- solve(trena.all, target.gene, candidate.tfs, extraArgs=list(solver.list=solvers))
    tbl.regRegions <- mergeTFmodelWithRegulatoryRegions(tbl.model, tbl.fp, tbl.fptf, target.gene)
 
    gene.info <- subset(tbl.tss, gene_name==target.gene)[1,]
@@ -204,16 +217,14 @@ createGeneModel <- function(mtx.expression, target.gene, regions)
 test.createGeneModel <- function()
 {
    printf("--- test.createGeneModel")
-
-   set.seed(17)  # guarantees reproducability
-
    target.gene <- "MEF2C"
    region <- "5:88,904,000-88,909,000"
    result <- createGeneModel(mtx=mtx.rosmap, target.gene, region)
    tbl.gm <- result$model
    tbl.reg <- result$regulatoryRegions
    msg <- result$msg
-   checkTrue(ncol(tbl.gm) == 10)
+
+   checkTrue(ncol(tbl.gm) >= 8)  # depends on how many solvers are used
    checkTrue(nrow(tbl.gm) >= 8)
 
      # this motif appears twice
