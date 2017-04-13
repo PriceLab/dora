@@ -117,15 +117,19 @@ test.mergeTFmodelWithRegulatoryRegions <- function()
 createGeneModel <- function(mtx.expression, target.gene, regions)
 {
    regions.string <- paste(regions, collapse="; ")
-   printf("--- createGeneModel for %s, %s", target.gene, regions.string)
+   printf("--- %s createGeneModel for %s, %s", date(), target.gene, regions.string)
 
+   print("cgm 1")
    if(!target.gene %in% rownames(mtx.expression)){
       msg <- sprintf("no expression data for %s", target.gene);  # todo: pass this back as payload
       print(msg)
       return(list(model=data.frame(), regulatoryRegions=data.frame(), msg=msg))
       }
 
+   print("cgm 2")
    tbl.fp <- data.frame()
+   print("cgm 3")
+
    for(region in regions){
       region.parsed <- extractChromStartEndFromChromLocString(region)
       chrom <- region.parsed$chrom
@@ -136,14 +140,24 @@ createGeneModel <- function(mtx.expression, target.gene, regions)
       tbl.fp <- rbind(tbl.fp, tbl.fp.new)
       }
 
+   print("cgm 4")
+   printf("region: %s", region)
    if(nrow(tbl.fp) == 0){
-      msg <- printf("no footprints found within in region %s:%d-%d", chrom, start, end)
+      msg <- printf("no footprints found within in regions: %s", regions.string)
       print(msg)
       return(list(model=data.frame(), regulatoryRegions=data.frame(), msg=msg))
       }
+   print("cgm 5")
 
    printf("range in which fps are requested: %d", end - start)
    printf("range in which fps are reported:  %d", max(tbl.fp$end) - min(tbl.fp$start))
+   fileOfInjectedSnps <- "~/github/dora/microservices/AD-trena/tbl.snpCompatible.from59snps.RData"
+   if(file.exists(fileOfInjectedSnps)){
+     printf("injecting snps from %s", fileOfInjectedSnps)
+     tableName <- load(fileOfInjectedSnps)
+     eval(parse(text=sprintf("tbl.fp <- rbind(tbl.fp, %s)", tableName)))
+     }
+
    tbl.fptf <- mapMotifsToTFsMergeIntoTable(fpf, tbl.fp)
    candidate.tfs <- sort(unique(tbl.fptf$tf))
    candidate.tfs <- intersect(rownames(mtx.expression), candidate.tfs)
@@ -154,7 +168,7 @@ createGeneModel <- function(mtx.expression, target.gene, regions)
    trena.all <- TReNA(mtx.matched, solver="ensemble")
 
    solvers <- c("lasso", "ridge", "randomForest",  "lassopv", "pearson", "spearman") # "sqrtlasso",
-   tbl.model <- solve(trena.all, target.gene, candidate.tfs, extraArgs = list(solver.list=solvers))
+   tbl.model <- solve(trena.all, target.gene, candidate.tfs, extraArgs = list(solver.list=solvers, gene.cutoff=0.1))
 
    tbl.regRegions <- mergeTFmodelWithRegulatoryRegions(tbl.model, tbl.fp, tbl.fptf, target.gene)
 
