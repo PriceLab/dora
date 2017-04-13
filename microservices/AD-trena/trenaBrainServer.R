@@ -2,6 +2,7 @@
 #------------------------------------------------------------------------------------------------------------------------
 source("../trenaCommon/trenaServer.R")
 #------------------------------------------------------------------------------------------------------------------------
+library(rzmq)
 PORT=5551
 #------------------------------------------------------------------------------------------------------------------------
 if(!exists("mtx.rosmap")){
@@ -22,6 +23,12 @@ trenaBrainServerTests <- function()
    test.createGeneModel.brain()
 
 } # trenaBrainServerTests
+#------------------------------------------------------------------------------------------------------------------------
+demo.rs34423320.mpzl1 <- function()
+{
+   printf("--- demo.rs34423320")
+
+} # demo.rs34423320
 #------------------------------------------------------------------------------------------------------------------------
 test.createGeneModel.brain <- function()
 {
@@ -51,6 +58,7 @@ test.createGeneModel.brain <- function()
 } # test.createGeneModel.brain
 #------------------------------------------------------------------------------------------------------------------------
 if(!interactive()) {
+
    context = init.context()
    socket = init.socket(context,"ZMQ_REP")
    bind.socket(socket, sprintf("tcp://*:%d", PORT))
@@ -83,7 +91,7 @@ if(!interactive()) {
         else if(msg$cmd == "getExpressionMatrixNames"){
            printf("getExpressionMatrixNames");
            response <- list(cmd=msg$callback, status="success", callback="",
-                            payload=c("skinProtectedAndExposed", "gtexFibroblast", "gtexPrimary"))
+                            payload=c("rosmap"))
            }
         else if(msg$cmd == "getFootprintsInRegion"){
           footprintRegion <- msg$payload$footprintRegion;
