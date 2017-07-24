@@ -1,6 +1,5 @@
 # server.R: explore creation and provision of gene models
 #------------------------------------------------------------------------------------------------------------------------
-<<<<<<< HEAD
 PORT=5550
 #------------------------------------------------------------------------------------------------------------------------
 library(rzmq)
@@ -11,10 +10,7 @@ library(stringr)
 library(graph)
 library(RUnit)
 library(RCyjs)
-=======
 source("../trenaCommon/trenaServer.R")
-PORT=5550
->>>>>>> 95c99b70dd15fe87a386770d82ee4a1dfa242d28
 #------------------------------------------------------------------------------------------------------------------------
 if(!exists("mtx.protectedAndExposed")){
 
@@ -92,13 +88,12 @@ if(!interactive()) {
           response <- list(cmd=msg$callback, status=commandStatus, callback="", payload=tbl.fp)
           }
         else if(msg$cmd == "createGeneModel"){
-           print(1)
+           printf("--- executing createGeneModel, with payload:")
+           print(msg$payload)              
            targetGene <- msg$payload$targetGene;
-           print(2)
-           genomicRegions <- msg$payload$genomicRegions
-           printf("--- genomicRegions")
-           print(genomicRegions)
-           print(3)
+           genomicRegion <- msg$payload$footprintRegion
+           printf("--- genomicRegion")
+           print(genomicRegion)
            expressionMatrixName <- msg$payload$matrix
            mtx.found <- TRUE
            if(expressionMatrixName == "skinProtectedAndExposed")
@@ -114,7 +109,7 @@ if(!interactive()) {
            else
               mtx.found <- FALSE
            if(mtx.found) {
-              result <- createGeneModel(mtx, targetGene, genomicRegions)
+              result <- createGeneModel(mtx, targetGene, genomicRegion)
               tbl.gm <- result$model
               tbl.reg <- result$regulatoryRegions
               message <- result$msg
