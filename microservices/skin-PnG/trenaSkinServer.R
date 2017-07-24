@@ -1,6 +1,6 @@
 # server.R: explore creation and provision of gene models
 #------------------------------------------------------------------------------------------------------------------------
-PORT=5558
+PORT=5550
 #------------------------------------------------------------------------------------------------------------------------
 library(rzmq)
 library(jsonlite)
@@ -12,15 +12,24 @@ library(RUnit)
 library(RCyjs)
 #------------------------------------------------------------------------------------------------------------------------
 if(!exists("mtx.protectedAndExposed")){
+
    printf("loading expression matrix: %s", load("~/github/dora/datasets/skin/mtx.protectedAndExposed.RData"))
    mtx.protectedAndExposed <- mtx.pAndE
    print(dim(mtx.protectedAndExposed))
+
    printf("loading expression matrix: %s", load("~/github/dora/datasets/skin/gtex.fib.RData"))
    mtx.gtexFibroblast <- gtex.fib
    print(dim(mtx.gtexFibroblast))
+
    printf("loading expression matrix: %s", load("~/github/dora/datasets/skin/gtex.primary.RData"))
    mtx.gtexPrimary <- gtex.primary
    print(dim(mtx.gtexPrimary))
+
+   printf("loading expression matrix: %s", load("~/github/dora/datasets/skin/mayo.temporalCortex.RData"))
+   print(dim(mtx.temporalCortex))
+
+   printf("loading expression matrix: %s", load("~/github/dora/datasets/skin/mayo.cerebellum.RData"))
+   print(dim(mtx.cerebellum))
    }
 
 genome.db.uri    <- "postgres://whovian/hg38"             # has gtf and motifsgenes tables
@@ -847,7 +856,8 @@ if(!interactive()) {
         else if(msg$cmd == "getExpressionMatrixNames"){
            printf("getExpressionMatrixNames");
            response <- list(cmd=msg$callback, status="success", callback="",
-                            payload=c("skinProtectedAndExposed", "gtexFibroblast", "gtexPrimary"))
+                            payload=c("skinProtectedAndExposed", "gtexFibroblast", "gtexPrimary",
+                                      "mayoTCX", "mayoCER"))
            }
         else if(msg$cmd == "getFootprintsInRegion"){
           footprintRegion <- msg$payload$footprintRegion;
@@ -876,6 +886,10 @@ if(!interactive()) {
                mtx <- mtx.protectedAndExposed <- mtx.gtexFibroblast
            else if(expressionMatrixName == "gtexPrimary")
                mtx <- mtx.gtexPrimary
+           else if(expressionMatrixName == "mayoTCX")
+               mtx <- mtx.temporalCortex
+           else if(expressionMatrixName == "mayoCER")
+               mtx <- mtx.cerebellum
            else
               mtx.found <- FALSE
            if(mtx.found) {
